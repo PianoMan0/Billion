@@ -1,0 +1,114 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f0f8ff;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+}
+
+h1 {
+    color: #1e90ff;
+}
+
+h2 {
+    color: #4682b4;
+}
+
+form {
+    background-color: #e6f7ff;
+    border: 1px solid #b0c4de;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+form label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #4682b4;
+}
+
+form input,
+form textarea {
+    width: 90%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #b0c4de;
+    border-radius: 4px;
+    background-color: #f0f8ff;
+}
+
+form button {
+    background-color: #4682b4;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+form button:hover {
+    background-color: #1e90ff;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li {
+    background-color: #e6f7ff;
+    border: 1px solid #b0c4de;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+}
+
+li .right {
+    align-self: flex-end; 
+    width: 100px; 
+    text-align: right;
+}
+
+li .post-content {
+    width: 60%;
+    margin-bottom: 10px;
+    margin-left: 120px;
+}
+
+li .post-footer {
+    margin-top: 5px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9em;
+    color: #4682b4;
+}
+
+li .post-footer .username {
+    font-weight: bold;
+    color: #4682b4;
+}
+
+.logout {
+    float: right;
+    margin-right: 5px;
+}
+
+a {
+    color: #4682b4;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.left {
+    position: absolute;
+}
+
+.left img {
+    max-height: 50px;
+    max-width: 50px;
+}
