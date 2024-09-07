@@ -1,3 +1,4 @@
+// Copyright 2024 PianoMan0
 <?php
 
 try {
