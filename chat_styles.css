@@ -1,0 +1,37 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+}
+
+#chat-container {
+    display: flex;
+    justify-content: space-between;
+}
+
+#chat-rooms {
+    width: 30%;
+    background-color: white;
+    border-right: 1px solid #ccc;
+    padding: 10px;
+}
+
+#messages {
+    width: 70%;
+    padding: 10px;
+}
+
+#message-list {
+    height: 400px;
+    overflow-y: scroll;
+    border: 1px solid #ccc;
+    padding: 10px;
+    background-color: #fff;
+}
+
+#message-input {
+    width: 80%;
+}
+
+#new-room {
+    margin-bottom: 10px;
+}
