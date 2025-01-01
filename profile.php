@@ -1,4 +1,3 @@
-// Copyright 2024 PianoMan0
 <?php
 
 session_start();
@@ -111,6 +110,12 @@ $stmt->bindParam(':profile_id', $profile_id);
 $stmt->execute();
 $profile = $stmt->fetch(PDO::FETCH_ASSOC);
 
+$stmt = $db->prepare("SELECT timestamp FROM posts WHERE user_id = :profile_id ORDER BY timestamp DESC");
+$stmt->bindParam(':profile_id', $profile_id);
+$stmt->execute();
+$last_post = $stmt->fetch(PDO::FETCH_ASSOC);
+
+
 // Get direct messages between the logged-in user and the user whose profile is being viewed
 $stmt = $db->prepare("
     SELECT messages.*, users.username AS from_username FROM messages
@@ -158,6 +163,14 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } else {
         echo "No profile yet.";
     } ?>
+    <br><br>
+
+    <?php 
+    if (!empty($last_post['timestamp'])) {
+        echo "Date of last post: ";
+        echo nl2br($last_post['timestamp']);
+    }
+    ?>
 
     <h2>Direct Messages</h2>
 
