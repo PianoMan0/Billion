@@ -172,7 +172,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     ?>
 
-    <h2>Direct Messages</h2>
+ <h2>Direct Messages <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20"></a></h2>
 
     <form action="profile.php?id=<?=$profile_id;?>" method="POST">
         <input type="hidden" id="to_user_id" name="to_user_id" value="<?=$profile_id;?>">
