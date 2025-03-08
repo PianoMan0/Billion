@@ -1,4 +1,3 @@
-// Copyright 2024-2025 PianoMan0
 <?php
 
 session_start();
@@ -140,6 +139,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 }
 
+if ($_COOKIE['last_visited']) {
+    $last_visited = $_COOKIE['last_visited'];
+    $_SESSION['last_visited'] = $last_visited;
+    $stmt = $db->prepare("
+        SELECT COUNT(*) FROM messages
+        WHERE (to_user_id = :profile_id)
+        AND timestamp > DATETIME(:last_visited, 'unixepoch')
+    ");
+    $stmt->bindParam(':profile_id', $_SESSION['user_id']);
+    $stmt->bindParam(':last_visited', $last_visited);
+    $stmt->execute();
+    $new_messages_count = $stmt->fetchColumn();
+}
+
 // Get a list of recent posts, along with their like counts
 $stmt = $db->prepare("
     SELECT posts.id, posts.content, posts.timestamp, users.id AS user_id, users.username, 
@@ -166,8 +179,13 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 <body>
 
-    <div class="logout"><a href="index.php?action=logout">Logout</a></div>
-    
+    <div class="logout">
+        <?php if ($new_messages_count > 0) {
+            echo $new_messages_count;
+        } ?>
+        <a href="messages.php">Messages</a> | <a href="index.php?action=logout">Logout</a>
+    </div>
+
     <img src="billion_small.png" height=100 style="margin-bottom:15px"><br>
 
     <form action="index.php" method="POST" enctype="multipart/form-data">
