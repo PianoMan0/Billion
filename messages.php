@@ -1,4 +1,3 @@
-// Copyright 2024 PianoMan0
 <?php
 
 session_start();
@@ -39,9 +38,8 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="logout"><a href="index.php?action=logout">Logout</a></div>
 
     <a href="index.php"><img src="billion_small.png" height=100 style="margin-bottom:15px"></a><br>
-    
- <h2>Direct Messages <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20"></a></h2>
 
+    <h2>Direct Messages <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20"></a></h2>
     <style>
     .self-bg {
         background-color: #f1e6ff;
