@@ -177,6 +177,14 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, target-densityDpi=device-dpi, minimal-ui' />
     <title>Billion - User Posts Feed</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .dark-mode #logo {
+            filter: brightness(0) invert(1);
+        }
+        .dark-mode img[src="reload.svg"] {
+        filter: brightness(0) invert(1);
+        }
+    </style>
 </head>
 <body>
 
@@ -245,23 +253,15 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </body>
 <script>
 const toggleButton = document.getElementById('theme-toggle');
-const logoImage = document.getElementById('logo');
 
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme) {
   document.body.classList.toggle('dark-mode', savedTheme === 'dark');
-  // Set initial logo based on saved theme
-  logoImage.src = savedTheme === 'dark' ? 'billion_dark.png' : 'billion_small.png';
 }
 
 toggleButton.addEventListener('click', () => {
   const isDarkMode = document.body.classList.toggle('dark-mode');
-  // Switch logo image based on dark mode state
-  logoImage.src = isDarkMode ? 'billion_dark.png' : 'billion_small.png';
-  
   localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-
-  console.log('Current theme:', isDarkMode ? 'dark' : 'light');
 });
 </script>
 
