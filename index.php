@@ -1,4 +1,4 @@
-// Copyright 2024-2025 PianoMan0
+Copyright 2024-2025 PianoMan0
 <?php
 
 session_start();
@@ -184,10 +184,11 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php if ($new_messages_count > 0) {
             echo $new_messages_count;
         } ?>
-        <a href="messages.php">Messages</a> | <a href="index.php?action=logout">Logout</a>
+        <a href="messages.php">Messages</a> | <button id="theme-toggle">Toggle Dark Mode</button>
+        <a href="index.php?action=logout">Logout</a>
     </div>
 
-    <img src="billion_small.png" height=100 style="margin-bottom:15px"><br>
+    <img id="logo" src="billion_small.png" height=100 style="margin-bottom:15px"><br>
 
     <form action="index.php" method="POST" enctype="multipart/form-data">
         <input type="hidden" id="user_id" name="user_id" value="<?=$_SESSION['user_id'];?>">
@@ -242,4 +243,26 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <?php endif; ?>
 
 </body>
+<script>
+const toggleButton = document.getElementById('theme-toggle');
+const logoImage = document.getElementById('logo');
+
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme) {
+  document.body.classList.toggle('dark-mode', savedTheme === 'dark');
+  // Set initial logo based on saved theme
+  logoImage.src = savedTheme === 'dark' ? 'billion_dark.png' : 'billion_small.png';
+}
+
+toggleButton.addEventListener('click', () => {
+  const isDarkMode = document.body.classList.toggle('dark-mode');
+  // Switch logo image based on dark mode state
+  logoImage.src = isDarkMode ? 'billion_dark.png' : 'billion_small.png';
+  
+  localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+
+  console.log('Current theme:', isDarkMode ? 'dark' : 'light');
+});
+</script>
+
 </html>
