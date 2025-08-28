@@ -1,4 +1,3 @@
-Copyright 2024-2025 PianoMan0
 <?php
 
 session_start();
@@ -12,7 +11,6 @@ if (!isset($_SESSION['username'])) {
 // Connect to the database
 $db = new PDO('sqlite:posts.db');
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 
 // Adjust "Like" count for post
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -55,10 +53,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $stmt->bindParam(':post_id', $post_id);
         $stmt->execute();
 
+        // Also delete associated uploads (images and audio)
+        $stmt = $db->prepare("SELECT file_name FROM uploads WHERE post_id = :post_id");
+        $stmt->bindParam(':post_id', $post_id);
+        $stmt->execute();
+        $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($files as $file) {
+            if (file_exists($file['file_name'])) {
+                unlink($file['file_name']);
+            }
+        }
+        $stmt = $db->prepare("DELETE FROM uploads WHERE post_id = :post_id");
+        $stmt->bindParam(':post_id', $post_id);
+        $stmt->execute();
+
         header('Location: index.php');
         exit;
     }
-
 }
 
 // Determine if new content has been submitted
@@ -67,7 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $content = $_POST['content'];
 
     if (!empty($user_id) && !empty($content)) {
-        
         // Insert the new post into the database
         $stmt = $db->prepare("INSERT INTO posts (user_id, content) VALUES (:user_id, :content)");
         $stmt->bindParam(':user_id', $user_id);
@@ -75,69 +85,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
         $post_id = $db->lastInsertId();
 
-        if (isset($_FILES['image'])) {
-            $uploadDir = 'uploads/';
+        $uploadDir = 'uploads/';
 
-            // Process the uploaded file
+        // Handle image upload
+        if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
             $image = $_FILES['image'];
-
             if ($image['error'] === UPLOAD_ERR_OK) {
-
-                // Get image info
                 $imageInfo = getimagesize($image['tmp_name']);
+                if ($imageInfo && $imageInfo['mime'] === 'image/jpeg') {
+                    $sourceImage = imagecreatefromjpeg($image['tmp_name']);
+                    $originalWidth = $imageInfo[0];
+                    $originalHeight = $imageInfo[1];
+                    $maxSize = 480;
+                    if ($originalWidth > $originalHeight) {
+                        $newWidth = $maxSize;
+                        $newHeight = intval($originalHeight * $maxSize / $originalWidth);
+                    } else {
+                        $newHeight = $maxSize;
+                        $newWidth = intval($originalWidth * $maxSize / $originalHeight);
+                    }
+                    $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
+                    imagecopyresampled($resizedImage, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
+                    $hashedFilename = $uploadDir . md5(uniqid(rand(), true)) . '.jpg';
+                    if (imagejpeg($resizedImage, $hashedFilename, 85)) {
+                        $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                        $stmt->bindParam(':post_id', $post_id);
+                        $stmt->bindParam(':file_name', $hashedFilename);
+                        $stmt->execute();
+                    }
+                    imagedestroy($sourceImage);
+                    imagedestroy($resizedImage);
+                }
+            }
+        }
 
-                if ($imageInfo) {
+        // Handle audio upload (voice clip)
+        if (isset($_FILES['audio']) && $_FILES['audio']['error'] !== UPLOAD_ERR_NO_FILE) {
+            $audio = $_FILES['audio'];
+            if ($audio['error'] === UPLOAD_ERR_OK) {
+                // Check MIME type and duration
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $audio['tmp_name']);
+                finfo_close($finfo);
 
-                    // Check if the file is a JPG image
-                    $mimeType = $imageInfo['mime'];
-
-                    if ($mimeType === 'image/jpeg') {
-
-                        $sourceImage = imagecreatefromjpeg($image['tmp_name']);
-
-                        // Get original dimensions
-                        $originalWidth = $imageInfo[0];
-                        $originalHeight = $imageInfo[1];
-
-                        // Calculate new dimensions while maintaining aspect ratio
-                        $maxSize = 480;
-                        if ($originalWidth > $originalHeight) {
-                            $newWidth = $maxSize;
-                            $newHeight = intval($originalHeight * $maxSize / $originalWidth);
-                        } else {
-                            $newHeight = $maxSize;
-                            $newWidth = intval($originalWidth * $maxSize / $originalHeight);
-                        }
-
-                        // Create a new true color image with the new dimensions
-                        $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
-                        imagecopyresampled($resizedImage, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
-
-                        // Generate a unique hashed filename
-                        $hashedFilename = $uploadDir . md5(uniqid(rand(), true)) . '.jpg';
-
-                        // Save the resized image
-                        if (imagejpeg($resizedImage, $hashedFilename, 85)) {
-                            
+                // Accept only OGG or MP3 or WAV files for voice clips
+                $allowedTypes = ['audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/webm'];
+                if (in_array($mimeType, $allowedTypes)) {
+                    // Check duration (up to ~30s)
+                    // Use ffmpeg to get duration, fallback: store anyway if ffmpeg not available
+                    $duration = 0;
+                    $ffmpegExists = shell_exec('which ffprobe');
+                    if ($ffmpegExists) {
+                        $ffmpegCmd = "ffprobe -i " . escapeshellarg($audio['tmp_name']) . " -show_entries format=duration -v quiet -of csv=\"p=0\"";
+                        $duration = floatval(trim(shell_exec($ffmpegCmd)));
+                    }
+                    if ($duration <= 30.5) {
+                        $audioExt = pathinfo($audio['name'], PATHINFO_EXTENSION);
+                        $audioFilename = $uploadDir . md5(uniqid(rand(), true)) . '.' . $audioExt;
+                        if (move_uploaded_file($audio['tmp_name'], $audioFilename)) {
                             $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
                             $stmt->bindParam(':post_id', $post_id);
-                            $stmt->bindParam(':file_name', $hashedFilename);
+                            $stmt->bindParam(':file_name', $audioFilename);
                             $stmt->execute();
-
-                        } 
-
-                        // Free up memory
-                        imagedestroy($sourceImage);
-                        imagedestroy($resizedImage);
+                        }
+                    } else {
+                        // Optionally you could display an error: voice clip too long.
+                        // Here we just ignore it.
                     }
                 }
             }
-        }    
+        }
     }
 
     header('Location: index.php');
     exit;
-
 }
 
 if ($_COOKIE['last_visited']) {
@@ -154,10 +175,10 @@ if ($_COOKIE['last_visited']) {
     $new_messages_count = $stmt->fetchColumn();
 }
 
-// Get a list of recent posts, along with their like counts
+// Get a list of recent posts, along with their like counts and uploads (images/audio)
 $stmt = $db->prepare("
     SELECT posts.id, posts.content, posts.timestamp, users.id AS user_id, users.username, 
-    COUNT(likes.post_id) AS like_count, COUNT(likes2.post_id) AS user_liked, uploads.file_name
+    COUNT(likes.post_id) AS like_count, COUNT(likes2.post_id) AS user_liked, GROUP_CONCAT(uploads.file_name) AS file_names
     FROM posts 
     JOIN users ON posts.user_id = users.id 
     LEFT JOIN likes ON likes.post_id = posts.id
@@ -182,7 +203,7 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
             filter: brightness(0) invert(1);
         }
         .dark-mode img[src="reload.svg"] {
-        filter: brightness(0) invert(1);
+            filter: brightness(0) invert(1);
         }
     </style>
 </head>
@@ -201,7 +222,11 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <form action="index.php" method="POST" enctype="multipart/form-data">
         <input type="hidden" id="user_id" name="user_id" value="<?=$_SESSION['user_id'];?>">
         <textarea id="content" name="content" required placeholder="What's on your mind, <?=$_SESSION['username'];?>?"></textarea>
-        <br><input type="file" name="image" id="image" accept="image/jpeg"><br>
+        <br>
+        <label for="image">Image (JPG): </label>
+        <input type="file" name="image" id="image" accept="image/jpeg"><br>
+        <label for="audio">Voice Clip (max 30s, MP3/OGG/WAV): </label>
+        <input type="file" name="audio" id="audio" accept="audio/ogg, audio/mpeg, audio/wav, audio/x-wav, audio/webm"><br>
         <button type="submit">Submit</button>
     </form>
 
@@ -212,35 +237,42 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li>
                     <div class="right">
                        <span style="margin-right: 6px"><?=$post['like_count'];?> Likes</span>
-                       <? if ($post['user_liked']) { ?><a href="index.php?action=unlike&post_id=<?=$post['id'];?>">Unlike</a><? }
-                       else { ?><a href="index.php?action=like&post_id=<?=$post['id'];?>">Like</a><? } ?>
+                       <?php if ($post['user_liked']) { ?><a href="index.php?action=unlike&post_id=<?=$post['id'];?>">Unlike</a><?php }
+                       else { ?><a href="index.php?action=like&post_id=<?=$post['id'];?>">Like</a><?php } ?>
                     </div>
                     <div class="left">
                         <img src="uploads/profile_<?= $post['user_id']; ?>.jpg" onerror="this.onerror=null; this.src='uploads/placeholder-image.svg';">
                     </div>
                     <div class="post-content">
                         <?php echo nl2br(htmlspecialchars($post['content'])); ?>
-                        <? if (!empty($post['file_name'])) { echo "<p><img src='".$post['file_name']."'></p>"; } ?>
+                        <?php
+                        // Show uploads (image/audio)
+                        if (!empty($post['file_names'])) {
+                            $files = explode(',', $post['file_names']);
+                            foreach ($files as $file) {
+                                $file = trim($file);
+                                if (preg_match('/\.jpg$/i', $file)) {
+                                    echo "<p><img src='" . htmlspecialchars($file) . "'></p>";
+                                } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $file)) {
+                                    // Accept only audio types
+                                    echo "<p><audio controls src='" . htmlspecialchars($file) . "'></audio></p>";
+                                }
+                            }
+                        }
+                        ?>
                     </div>
                     <div class="post-footer">
                         <strong>
                             <a href="profile.php?id=<?=$post['user_id'];?>"><?php echo htmlspecialchars($post['username']); ?></a>
-                            <? if ($post['username'] == $_SESSION['username']) { ?>
+                            <?php if ($post['username'] == $_SESSION['username']) { ?>
                                 <a href="index.php?action=delete&post_id=<?=$post['id'];?>" title="Delete post"> &#128465;</a>
-                            <? } ?>
+                            <?php } ?>
                         </strong>
                         <em><?php 
-                        
-                        // Get the original time, in UTC
                         $date = new DateTime($post['timestamp'], new DateTimeZone('UTC'));
-
-                        // Convert to Eastern Time
                         $date->setTimezone(new DateTimeZone('America/New_York'));
-
-                        // Format the date as desired
                         $formattedDate = $date->format('F j, Y - g:i a');
                         echo $formattedDate; 
-                        
                         ?></em>
                     </div>
                 </li>

@@ -1,4 +1,3 @@
-// Copyright 2024-2025 PianoMan0
 <?php
 
 try {
@@ -66,16 +65,17 @@ try {
         FOREIGN KEY (post_id) REFERENCES posts(id)
     )");
 
-    // Create uploads table
+    // Create uploads table with file_type column to distinguish between images, audio, etc.
     $db->exec("CREATE TABLE IF NOT EXISTS uploads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         post_id INTEGER NOT NULL,
         file_name TEXT,
+        file_type TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (post_id) REFERENCES posts(id)
     )");
 
-    // Create messsages table
+    // Create messages table
     $db->exec("CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         to_user_id INTEGER NOT NULL,
