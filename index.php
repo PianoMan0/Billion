@@ -1,5 +1,7 @@
 <?php
 
+// Copyright 2024-2025 PianoMan0
+
 session_start();
 
 // Require users to log in.
@@ -149,8 +151,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $stmt->execute();
                         }
                     } else {
-                        // Optionally you could display an error: voice clip too long.
-                        // Here we just ignore it.
                     }
                 }
             }
@@ -195,7 +195,15 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, target-densityDpi=device-dpi, minimal-ui' />
+    <meta name="description" content="Discover historical events that occurred near your current location.">
+    <meta name="keywords" content="billion, social media, community, posts">
+    <meta name="author" content="PianoMan0">
+    <meta property="og:site_name" content="Billion" />
+    <meta property="og:title" content="Billion - User Posts Feed" />
+    <meta property="og:description" content="Join the Billion community to share and discover connection" />
+    <meta property="og:type" content="website" />
     <title>Billion - User Posts Feed</title>
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -219,14 +227,43 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <img id="logo" src="billion_small.png" height=100 style="margin-bottom:15px"><br>
 
-    <form action="index.php" method="POST" enctype="multipart/form-data">
+    <form action="index.php" method="POST" enctype="multipart/form-data" id="postForm">
         <input type="hidden" id="user_id" name="user_id" value="<?=$_SESSION['user_id'];?>">
         <textarea id="content" name="content" required placeholder="What's on your mind, <?=$_SESSION['username'];?>?"></textarea>
-        <br>
-        <label for="image">Image (JPG): </label>
-        <input type="file" name="image" id="image" accept="image/jpeg"><br>
-        <label for="audio">Voice Clip (max 30s, MP3/OGG/WAV): </label>
-        <input type="file" name="audio" id="audio" accept="audio/ogg, audio/mpeg, audio/wav, audio/x-wav, audio/webm"><br>
+
+        <div class="capture-row">
+            <div class="capture-panel">
+                <label>Photo</label>
+                <div class="camera-wrapper">
+                    <video id="cameraVideo" autoplay playsinline muted></video>
+                    <canvas id="photoCanvas" style="display:none"></canvas>
+                    <div class="photo-preview" id="photoPreview"></div>
+                </div>
+                <div class="capture-actions">
+                    <button type="button" id="start-camera">Open Camera</button>
+                    <button type="button" id="take-photo" disabled>Capture</button>
+                    <button type="button" id="retake-photo" style="display:none">Retake</button>
+                    <button type="button" id="close-camera" style="display:none">Close</button>
+                </div>
+            </div>
+
+            <div class="capture-panel">
+                <label>Voice Clip</label>
+                <div class="audio-wrapper">
+                    <div class="audio-preview" id="audioPreview"></div>
+                </div>
+                <div class="capture-actions">
+                    <button type="button" id="start-record">Record</button>
+                    <button type="button" id="stop-record" disabled>Stop</button>
+                    <span id="record-timer">00:00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Keep native file inputs hidden so server-side expects them on submit -->
+        <input type="file" name="image" id="image" accept="image/jpeg" style="display:none">
+        <input type="file" name="audio" id="audio" accept="audio/ogg, audio/mpeg, audio/wav, audio/x-wav, audio/webm" style="display:none">
+
         <button type="submit">Submit</button>
     </form>
 
@@ -295,6 +332,167 @@ toggleButton.addEventListener('click', () => {
   const isDarkMode = document.body.classList.toggle('dark-mode');
   localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
 });
+</script>
+
+<script>
+// Media capture logic: photo and audio
+(function(){
+    // Photo capture
+    const startCameraBtn = document.getElementById('start-camera');
+    const takePhotoBtn = document.getElementById('take-photo');
+    const retakePhotoBtn = document.getElementById('retake-photo');
+    const closeCameraBtn = document.getElementById('close-camera');
+    const video = document.getElementById('cameraVideo');
+    const canvas = document.getElementById('photoCanvas');
+    const photoPreview = document.getElementById('photoPreview');
+    const hiddenImageInput = document.getElementById('image');
+    let stream = null;
+
+    async function openCamera(){
+        try{
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            video.srcObject = stream;
+            takePhotoBtn.disabled = false;
+            closeCameraBtn.style.display = 'inline-block';
+            startCameraBtn.style.display = 'none';
+        }catch(err){
+            alert('Camera access denied or not available.');
+        }
+    }
+
+    function stopCamera(){
+        if(stream){
+            stream.getTracks().forEach(t => t.stop());
+            stream = null;
+        }
+        video.srcObject = null;
+        takePhotoBtn.disabled = true;
+        closeCameraBtn.style.display = 'none';
+        startCameraBtn.style.display = 'inline-block';
+    }
+
+    function capturePhoto(){
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if(!w || !h) return;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        canvas.toBlob(async function(blob){
+            // Convert to JPEG with reasonable quality
+            const jpegBlob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+            // preview
+            const url = URL.createObjectURL(jpegBlob);
+            photoPreview.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = url;
+            photoPreview.appendChild(img);
+
+            // write to hidden file input using DataTransfer
+            const file = new File([jpegBlob], 'capture.jpg', { type: 'image/jpeg' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            hiddenImageInput.files = dt.files;
+
+            retakePhotoBtn.style.display = 'inline-block';
+            takePhotoBtn.style.display = 'none';
+        }, 'image/jpeg', 0.85);
+    }
+
+    startCameraBtn.addEventListener('click', openCamera);
+    closeCameraBtn.addEventListener('click', stopCamera);
+    takePhotoBtn.addEventListener('click', capturePhoto);
+    retakePhotoBtn.addEventListener('click', ()=>{
+        photoPreview.innerHTML = '';
+        retakePhotoBtn.style.display = 'none';
+        takePhotoBtn.style.display = 'inline-block';
+        // clear file input
+        hiddenImageInput.value = '';
+    });
+
+    // Audio recording
+    const startRecordBtn = document.getElementById('start-record');
+    const stopRecordBtn = document.getElementById('stop-record');
+    const audioPreview = document.getElementById('audioPreview');
+    const hiddenAudioInput = document.getElementById('audio');
+    const recordTimer = document.getElementById('record-timer');
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recordInterval = null;
+    let seconds = 0;
+    const MAX_SECONDS = 30;
+
+    function formatTime(s){
+        return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+    }
+
+    async function startRecording(){
+        try{
+            const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            mediaRecorder = new MediaRecorder(s);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => { if(e.data && e.data.size>0) audioChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
+                const url = URL.createObjectURL(blob);
+                audioPreview.innerHTML = '';
+                const audioEl = document.createElement('audio');
+                audioEl.controls = true;
+                audioEl.src = url;
+                audioPreview.appendChild(audioEl);
+
+                // write to hidden file input
+                const ext = blob.type.includes('mpeg') ? 'mp3' : (blob.type.includes('wav') ? 'wav' : 'webm');
+                const file = new File([blob], 'record.'+ext, { type: blob.type });
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                hiddenAudioInput.files = dt.files;
+
+                // stop all audio tracks
+                s.getTracks().forEach(t=>t.stop());
+            };
+            mediaRecorder.start();
+            startRecordBtn.disabled = true;
+            stopRecordBtn.disabled = false;
+            seconds = 0;
+            recordTimer.textContent = formatTime(seconds);
+            recordInterval = setInterval(()=>{
+                seconds++;
+                recordTimer.textContent = formatTime(seconds);
+                if(seconds >= MAX_SECONDS){
+                    stopRecording();
+                }
+            }, 1000);
+        }catch(err){
+            alert('Microphone access denied or not available.');
+        }
+    }
+
+    function stopRecording(){
+        if(mediaRecorder && mediaRecorder.state !== 'inactive'){
+            mediaRecorder.stop();
+        }
+        if(recordInterval){ clearInterval(recordInterval); recordInterval = null; }
+        startRecordBtn.disabled = false;
+        stopRecordBtn.disabled = true;
+    }
+
+    startRecordBtn.addEventListener('click', startRecording);
+    stopRecordBtn.addEventListener('click', stopRecording);
+
+    // Before submitting the form, ensure any active streams are stopped
+    const postForm = document.getElementById('postForm');
+    postForm.addEventListener('submit', ()=>{
+        stopCamera();
+        // if recording, stop and let onstop handler attach file
+        if(mediaRecorder && mediaRecorder.state === 'recording'){
+            mediaRecorder.stop();
+        }
+    });
+
+})();
 </script>
 
 </html>

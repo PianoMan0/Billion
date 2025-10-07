@@ -1,5 +1,6 @@
-// Copyright 2024-2025 PianoMan0
 <?php
+
+// Copyright 2024-2025 PianoMan0
 
 session_start();
 $error = '';

@@ -1,5 +1,7 @@
 <?php
 
+// Copyright 2024-2025 PianoMan0
+
 try {
     $db = new PDO('sqlite:posts.db');
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -44,7 +46,7 @@ try {
         FOREIGN KEY (user_id) REFERENCES users(id)
     )");
 
-    //$db->exec("DROP TABLE likes");    
+    //$db->exec("DROP TABLE likes");
 
     // Create likes table
     $db->exec("CREATE TABLE IF NOT EXISTS likes (
