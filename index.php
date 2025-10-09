@@ -280,6 +280,9 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta property="og:title" content="Billion - User Posts Feed" />
     <meta property="og:description" content="Join the Billion community to share and discover connection" />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="billion_small.png" />
+    <link rel="icon" type="image/png" href="billion_small.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="billion_small.png">
     <title>Billion - User Posts Feed</title>
     <link rel="stylesheet" href="styles.css">
     <style>

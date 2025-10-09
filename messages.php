@@ -32,6 +32,18 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <html lang="en">
 <head>
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, target-densityDpi=device-dpi, minimal-ui' />
+    <meta charset="UTF-8">
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, target-densityDpi=device-dpi, minimal-ui' />
+    <meta name="description" content="Join the Billion community to share and discover connection">
+    <meta name="keywords" content="billion, social media, community, posts">
+    <meta name="author" content="PianoMan0">
+    <meta property="og:site_name" content="Billion" />
+    <meta property="og:title" content="Billion - Messages Feed" />
+    <meta property="og:description" content="Join the Billion community to share and discover connection" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="billion_small.png" />
+    <link rel="icon" type="image/png" href="billion_small.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="billion_small.png">
     <title>Billion - Messages for <?=$profile['username'];?></title>
     <link rel="stylesheet" href="styles.css">
 </head>
