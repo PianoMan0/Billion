@@ -362,6 +362,35 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             }
                             return '@' . htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
                         }, $escaped);
+
+                        // Convert http/https links into safe clickable anchors
+                        $rendered = preg_replace_callback('/\bhttps?:\/\/[^\s<]+/i', function($m) {
+                            $urlEscaped = $m[0];
+                            // decode any entities produced by htmlspecialchars earlier
+                            $url = html_entity_decode($urlEscaped, ENT_QUOTES, 'UTF-8');
+
+                            // Validate URL and allow only http/https
+                            if (!filter_var($url, FILTER_VALIDATE_URL)) {
+                                return $urlEscaped;
+                            }
+                            $parts = parse_url($url);
+                            $scheme = strtolower($parts['scheme'] ?? '');
+                            if ($scheme !== 'http' && $scheme !== 'https') {
+                                return $urlEscaped;
+                            }
+
+                            // Safe href and display text
+                            $safeHref = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+                            $display = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+
+                            // Shorten display for very long URLs
+                            if (mb_strlen($display) > 60) {
+                                $display = htmlspecialchars(mb_substr($url, 0, 57, 'UTF-8') . '...', ENT_QUOTES, 'UTF-8');
+                            }
+
+                            return '<a href="' . $safeHref . '" target="_blank" rel="noopener noreferrer">' . $display . '</a>';
+                        }, $rendered);
+
                         echo nl2br($rendered);
                         ?>
                         <?php
