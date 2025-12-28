@@ -1,6 +1,6 @@
 <?php
 
-// Copyright 2024-2025 PianoMan0
+// Copyright 2024-2026 PianoMan0
 
 try {
     $db = new PDO('sqlite:posts.db');

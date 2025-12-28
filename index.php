@@ -1,5 +1,5 @@
 <?php
-// Copyright 2024-2025 PianoMan0
+// Copyright 2024-2026 PianoMan0
 
 session_start();
 
