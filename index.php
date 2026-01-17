@@ -309,30 +309,13 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <form action="index.php" method="POST" enctype="multipart/form-data" id="postForm">
         <!-- server uses session user_id; don't trust client-supplied ids -->
         <textarea id="content" name="content" required placeholder="What's on your mind, <?= htmlspecialchars($_SESSION['username'], ENT_QUOTES, 'UTF-8'); ?>?"></textarea>
-
-        <div class="capture-row">
-            <div class="capture-panel">
-                <label>Photo</label>
-                <div class="camera-wrapper">
-                    <video id="cameraVideo" autoplay playsinline muted></video>
-                    <canvas id="photoCanvas" style="display:none"></canvas>
-                    <div class="photo-preview" id="photoPreview"></div>
-                </div>
-                <div class="capture-actions">
-                    <button type="button" id="start-camera">Open Camera</button>
-                    <button type="button" id="take-photo" disabled>Capture</button>
-                    <button type="button" id="retake-photo" style="display:none">Retake</button>
-                    <button type="button" id="close-camera" style="display:none">Close</button>
-                </div>
-            </div>
-
-          </div>
+        <button type="submit">Submit</button>
 
         <!-- Native file inputs hidden; server expects them on submit -->
         <input type="file" name="image" id="image" accept="image/jpeg" style="display:none">
         <input type="file" name="audio" id="audio" accept="audio/ogg, audio/mpeg, audio/wav, audio/x-wav, audio/webm" style="display:none">
 
-        <button type="submit">Submit</button>
+
     </form>
 
     <h2>Recent Posts <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20" alt="reload"></a></h2>
@@ -408,6 +391,8 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 }
                             }
                         }
+
+                        
                         ?>
                     </div>
                     <div class="post-footer">
@@ -449,187 +434,6 @@ toggleButton.addEventListener('click', () => {
   const isDarkMode = document.body.classList.toggle('dark-mode');
   localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
 });
-</script>
-
-<script>
-// Media capture logic: photo and audio (unchanged except defensive checks)
-(function(){
-    // Photo capture
-    const startCameraBtn = document.getElementById('start-camera');
-    const takePhotoBtn = document.getElementById('take-photo');
-    const retakePhotoBtn = document.getElementById('retake-photo');
-    const closeCameraBtn = document.getElementById('close-camera');
-    const video = document.getElementById('cameraVideo');
-    const canvas = document.getElementById('photoCanvas');
-    const photoPreview = document.getElementById('photoPreview');
-    const hiddenImageInput = document.getElementById('image');
-    let stream = null;
-
-    async function openCamera(){
-        try{
-            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-            if (video) {
-                video.srcObject = stream;
-            }
-            if (takePhotoBtn) takePhotoBtn.disabled = false;
-            if (closeCameraBtn) closeCameraBtn.style.display = 'inline-block';
-            if (startCameraBtn) startCameraBtn.style.display = 'none';
-        }catch(err){
-            alert('Camera access denied or not available.');
-        }
-    }
-
-    function stopCamera(){
-        if(stream){
-            stream.getTracks().forEach(t => t.stop());
-            stream = null;
-        }
-        if (video) video.srcObject = null;
-        if (takePhotoBtn) takePhotoBtn.disabled = true;
-        if (closeCameraBtn) closeCameraBtn.style.display = 'none';
-        if (startCameraBtn) startCameraBtn.style.display = 'inline-block';
-    }
-
-    function capturePhoto(){
-        if (!video || !canvas) return;
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if(!w || !h) return;
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, w, h);
-
-        canvas.toBlob(function(blob){
-            if (!blob) return;
-            const url = URL.createObjectURL(blob);
-            if (photoPreview) {
-                photoPreview.innerHTML = '';
-                const img = document.createElement('img');
-                img.src = url;
-                photoPreview.appendChild(img);
-            }
-
-            // write to hidden file input using DataTransfer
-            try {
-                const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' });
-                const dt = new DataTransfer();
-                dt.items.add(file);
-                if (hiddenImageInput) hiddenImageInput.files = dt.files;
-            } catch(e) {
-                // older browsers: ignore
-            }
-
-            if (retakePhotoBtn) retakePhotoBtn.style.display = 'inline-block';
-            if (takePhotoBtn) takePhotoBtn.style.display = 'none';
-        }, 'image/jpeg', 0.85);
-    }
-
-    if (startCameraBtn) startCameraBtn.addEventListener('click', openCamera);
-    if (closeCameraBtn) closeCameraBtn.addEventListener('click', stopCamera);
-    if (takePhotoBtn) takePhotoBtn.addEventListener('click', capturePhoto);
-    if (retakePhotoBtn) retakePhotoBtn.addEventListener('click', ()=>{
-        if (photoPreview) photoPreview.innerHTML = '';
-        if (retakePhotoBtn) retakePhotoBtn.style.display = 'none';
-        if (takePhotoBtn) takePhotoBtn.style.display = 'inline-block';
-        // clear file input
-        if (hiddenImageInput) hiddenImageInput.value = '';
-    });
-
-    // Audio recording — initialize only if elements exist
-    const startRecordBtn = document.getElementById('start-record');
-    const stopRecordBtn = document.getElementById('stop-record');
-    const audioPreview = document.getElementById('audioPreview');
-    const hiddenAudioInput = document.getElementById('audio');
-    const recordTimer = document.getElementById('record-timer');
-
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let recordInterval = null;
-    let seconds = 0;
-    const MAX_SECONDS = 30;
-
-    function formatTime(s){
-        return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
-    }
-
-    async function startRecording(){
-        try{
-            const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            mediaRecorder = new MediaRecorder(s);
-            audioChunks = [];
-            mediaRecorder.ondataavailable = e => { if(e.data && e.data.size>0) audioChunks.push(e.data); };
-            mediaRecorder.onstop = () => {
-                if (audioChunks.length === 0) {
-                    s.getTracks().forEach(t=>t.stop());
-                    return;
-                }
-                const blob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
-                const url = URL.createObjectURL(blob);
-                if (audioPreview) {
-                    audioPreview.innerHTML = '';
-                    const audioEl = document.createElement('audio');
-                    audioEl.controls = true;
-                    audioEl.src = url;
-                    audioPreview.appendChild(audioEl);
-                }
-
-                // write to hidden file input
-                try {
-                    const ext = blob.type.includes('mpeg') ? 'mp3' : (blob.type.includes('wav') ? 'wav' : 'webm');
-                    const file = new File([blob], 'record.'+ext, { type: blob.type });
-                    const dt = new DataTransfer();
-                    dt.items.add(file);
-                    if (hiddenAudioInput) hiddenAudioInput.files = dt.files;
-                } catch(e) {
-                    // ignore on unsupported browsers
-                }
-
-                // stop all audio tracks
-                s.getTracks().forEach(t=>t.stop());
-            };
-            mediaRecorder.start();
-            if (startRecordBtn) startRecordBtn.disabled = true;
-            if (stopRecordBtn) stopRecordBtn.disabled = false;
-            seconds = 0;
-            if (recordTimer) recordTimer.textContent = formatTime(seconds);
-            recordInterval = setInterval(()=>{
-                seconds++;
-                if (recordTimer) recordTimer.textContent = formatTime(seconds);
-                if(seconds >= MAX_SECONDS){
-                    stopRecording();
-                }
-            }, 1000);
-        }catch(err){
-            alert('Microphone access denied or not available.');
-        }
-    }
-
-    function stopRecording(){
-        if(mediaRecorder && mediaRecorder.state !== 'inactive'){
-            mediaRecorder.stop();
-        }
-        if(recordInterval){ clearInterval(recordInterval); recordInterval = null; }
-        if (startRecordBtn) startRecordBtn.disabled = false;
-        if (stopRecordBtn) stopRecordBtn.disabled = true;
-    }
-
-    if (startRecordBtn) startRecordBtn.addEventListener('click', startRecording);
-    if (stopRecordBtn) stopRecordBtn.addEventListener('click', stopRecording);
-
-    // Before submitting the form, ensure any active streams are stopped
-    const postForm = document.getElementById('postForm');
-    if (postForm) {
-        postForm.addEventListener('submit', ()=>{
-            stopCamera();
-            // if recording, stop and let onstop handler attach file
-            if(mediaRecorder && mediaRecorder.state === 'recording'){
-                mediaRecorder.stop();
-            }
-        });
-    }
-
-})();
 </script>
 
 </html>

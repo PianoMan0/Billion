@@ -43,18 +43,16 @@ try {
         user_id INTEGER NOT NULL,
         content TEXT NOT NULL,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )");
-
-    //$db->exec("DROP TABLE likes");
 
     // Create likes table
     $db->exec("CREATE TABLE IF NOT EXISTS likes (
         user_id INTEGER NOT NULL,
         post_id INTEGER NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (post_id) REFERENCES posts(id),
-        PRIMARY KEY (user_id, post_id)
+        PRIMARY KEY (user_id, post_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     )");
 
     // Create comments table
@@ -62,19 +60,20 @@ try {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         post_id INTEGER NOT NULL,
+        comment TEXT NOT NULL,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (post_id) REFERENCES posts(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     )");
 
-    // Create uploads table with file_type column to distinguish between images, audio, etc.
+    // Create uploads table
     $db->exec("CREATE TABLE IF NOT EXISTS uploads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         post_id INTEGER NOT NULL,
         file_name TEXT,
         file_type TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (post_id) REFERENCES posts(id)
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     )");
 
     // Create messages table
@@ -84,9 +83,10 @@ try {
         from_user_id INTEGER NOT NULL,
         message TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (to_user_id) REFERENCES users(id),
-        FOREIGN KEY (from_user_id) REFERENCES users(id)
+        FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE
     )");
+
 
     echo "Database setup complete.";
 } catch (PDOException $e) {
