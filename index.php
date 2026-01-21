@@ -72,6 +72,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     // Delete the specified post (only owner's allowed)
     if (!empty($action) && $action === 'delete' && !empty($post_id)) {
+        // Verify owner before deleting anything
+        $ownerStmt = $db->prepare("SELECT user_id FROM posts WHERE id = :post_id LIMIT 1");
+        $ownerStmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+        $ownerStmt->execute();
+        $owner = $ownerStmt->fetchColumn();
+        if ((int)$owner !== (int)$_SESSION['user_id']) {
+            header('Location: index.php');
+            exit;
+        }
+
         // Fetch uploads for the post first (so we can remove files)
         $stmt = $db->prepare("SELECT file_name FROM uploads WHERE post_id = :post_id");
         $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
@@ -105,12 +115,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
         $stmt->execute();
 
-        // Remove the post itself (only if owned by current user)
-        $stmt = $db->prepare("DELETE FROM posts WHERE user_id = :user_id AND id = :post_id");
-        $stmt->bindValue(':user_id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
+        // Remove the post itself
+        $stmt = $db->prepare("DELETE FROM posts WHERE id = :post_id");
         $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
         $stmt->execute();
 
+        header('Location: index.php');
+        exit;
+    }
+
+    // Vote on poll
+    if (!empty($action) && $action === 'vote') {
+        $poll_id = isset($_GET['poll_id']) ? (int)$_GET['poll_id'] : null;
+        $option_id = isset($_GET['option_id']) ? (int)$_GET['option_id'] : null;
+        if (!empty($poll_id) && !empty($option_id) && !empty($_SESSION['user_id'])) {
+            // ensure option belongs to poll
+            $s = $db->prepare('SELECT id FROM poll_options WHERE id = :option_id AND poll_id = :poll_id LIMIT 1');
+            $s->execute([':option_id' => $option_id, ':poll_id' => $poll_id]);
+            $ok = $s->fetchColumn();
+            if ($ok) {
+                $ins = $db->prepare('INSERT OR REPLACE INTO poll_votes (poll_id, option_id, user_id) VALUES (:poll_id, :option_id, :user_id)');
+                $ins->execute([':poll_id' => $poll_id, ':option_id' => $option_id, ':user_id' => (int)$_SESSION['user_id']]);
+            }
+        }
         header('Location: index.php');
         exit;
     }
@@ -230,24 +257,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Handle poll creation (if requested)
+    if (!empty($_POST['is_poll']) && !empty($_POST['options']) && is_array($_POST['options'])) {
+        $question = trim($_POST['poll_question'] ?? '');
+        if ($question !== '') {
+            $stmtPoll = $db->prepare('INSERT INTO polls (post_id, user_id, question) VALUES (:post_id, :user_id, :question)');
+            $stmtPoll->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+            $stmtPoll->bindValue(':user_id', $user_id, PDO::PARAM_INT);
+            $stmtPoll->bindValue(':question', $question, PDO::PARAM_STR);
+            $stmtPoll->execute();
+            $poll_id = (int)$db->lastInsertId();
+            $stmtOpt = $db->prepare('INSERT INTO poll_options (poll_id, option_text) VALUES (:poll_id, :option_text)');
+            foreach ($_POST['options'] as $opt) {
+                $opt = trim((string)$opt);
+                if ($opt === '') continue;
+                $stmtOpt->execute([':poll_id' => $poll_id, ':option_text' => $opt]);
+            }
+        }
+    }
+
     header('Location: index.php');
     exit;
 }
 
-// New messages count based on last_visited cookie
-if (!empty($_COOKIE['last_visited'])) {
-    $last_visited = (int)$_COOKIE['last_visited'];
-    $_SESSION['last_visited'] = $last_visited;
-    $stmt = $db->prepare("
-        SELECT COUNT(*) FROM messages
-        WHERE (to_user_id = :profile_id)
-        AND timestamp > DATETIME(:last_visited, 'unixepoch')
-    ");
-    $stmt->bindValue(':profile_id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
-    $stmt->bindValue(':last_visited', $last_visited, PDO::PARAM_INT);
-    $stmt->execute();
-    $new_messages_count = (int)$stmt->fetchColumn();
-}
+// Unread notifications count (DMs, etc.)
+$stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = :user_id AND is_read = 0");
+$stmt->bindValue(':user_id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
+$stmt->execute();
+$new_messages_count = (int)$stmt->fetchColumn();
 
 // Get a list of recent posts, with like counts and uploads
 $stmt = $db->prepare("
@@ -309,6 +346,7 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <form action="index.php" method="POST" enctype="multipart/form-data" id="postForm">
         <!-- server uses session user_id; don't trust client-supplied ids -->
         <textarea id="content" name="content" required placeholder="What's on your mind, <?= htmlspecialchars($_SESSION['username'], ENT_QUOTES, 'UTF-8'); ?>?"></textarea>
+        <button type="button" id="startRecBtn">Record Voice</button>
         <button type="submit">Submit</button>
 
         <!-- Native file inputs hidden; server expects them on submit -->

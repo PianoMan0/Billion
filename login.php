@@ -6,29 +6,39 @@ session_start();
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $db = new PDO('sqlite:posts.db');
+    $dbPath = __DIR__ . '/posts.db';
+    $db = new PDO('sqlite:' . $dbPath);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $username = trim((string)($_POST['username'] ?? ''));
+    $password = $_POST['password'] ?? '';
 
-    $username = $_POST['username'];
-    $password = $_POST['password'];
-
-    if (!empty($username) && !empty($password)) {
-        $stmt = $db->prepare("SELECT * FROM users WHERE username = :username AND password = :password");
-        $stmt->bindParam(':username', $username);
-        $stmt->bindParam(':password', $password);
-        $stmt->execute();
+    if ($username === '' || $password === '') {
+        $error = 'Please enter both username and password.';
+    } else {
+        // Fetch user by username and verify password (support hashed or plain for backwards compatibility)
+        $stmt = $db->prepare("SELECT * FROM users WHERE username = :username LIMIT 1");
+        $stmt->execute([':username' => $username]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($user) {
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            header('Location: index.php');
-            exit;
-        } else {
-            $error = 'Invalid username or password.';
+            $stored = (string)($user['password'] ?? '');
+            $ok = false;
+            if ($stored !== '' && password_verify($password, $stored)) {
+                $ok = true;
+            } elseif ($password === $stored) {
+                // fallback to plain text comparison if DB has old plaintext passwords
+                $ok = true;
+            }
+
+            if ($ok) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                header('Location: index.php');
+                exit;
+            }
         }
-    } else {
-        $error = 'Please enter both username and password.';
+
+        $error = 'Invalid username or password.';
     }
 }
 ?>
