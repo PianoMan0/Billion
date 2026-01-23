@@ -12,4 +12,7 @@ Change the example users and example passwords to your family and friends' usern
 ## Step 3
 Show your family and friends' the awesome social media site you just made!
 
+
+This is an open source project that is still being updated and maintained :D
+
 <img src="./uploads/Screenshot 2025-01-10 150735.png">
