@@ -1,7 +1,8 @@
 <?php
 // Copyright 2024-2026 PianoMan0
 
-session_start();
+require_once __DIR__ . '/lib.php';
+secure_session_start();
 
 // Require users to log in.
 if (!isset($_SESSION['user_id'])) {
@@ -22,6 +23,7 @@ if ($profile_id <= 0) {
 
 // Determine if new content has been submitted
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_post_csrf();
     $profileText = trim((string)($_POST['profile'] ?? ''));
     $from_user_id = isset($_POST['from_user_id']) ? (int)$_POST['from_user_id'] : 0;
     $to_user_id = isset($_POST['to_user_id']) ? (int)$_POST['to_user_id'] : 0;
@@ -42,6 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $image = $_FILES['image'];
         if ($image['error'] === UPLOAD_ERR_OK) {
+            if (!empty($image['size']) && $image['size'] > BILLION_MAX_IMAGE_BYTES) {
+                // oversized; ignore
+            } else {
             $imageInfo = getimagesize($image['tmp_name']);
             if ($imageInfo) {
                 $mimeType = $imageInfo['mime'] ?? '';
@@ -73,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } else {
                 error_log('missing image info for profile image');
+            }
             }
         }
     }
@@ -121,7 +127,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <?php if ($profile_id === (int)($_SESSION['user_id'] ?? 0)): ?>
     <form action="profile.php?id=<?= $profile_id; ?>" method="POST" enctype="multipart/form-data">
-
+        <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <textarea style="min-height: 150px" id="profile" name="profile" placeholder="Add some profile text, <?= htmlspecialchars($_SESSION['username'] ?? ''); ?>!"><?= htmlspecialchars($profile['profile'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
         <br><input type="file" name="image" id="image" accept="image/jpeg"><br>
         <button type="submit">Submit</button>
@@ -145,6 +151,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
  <h2>Direct Messages <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20"></a></h2>
 
     <form action="profile.php?id=<?= $profile_id; ?>" method="POST">
+        <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <input type="hidden" id="to_user_id" name="to_user_id" value="<?= $profile_id; ?>">
         <input type="hidden" id="from_user_id" name="from_user_id" value="<?= (int)$_SESSION['user_id']; ?>">
         <textarea id="message" name="message" required placeholder="What's on your mind, <?= htmlspecialchars($_SESSION['username'] ?? ''); ?>?"></textarea>

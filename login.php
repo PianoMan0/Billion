@@ -2,10 +2,12 @@
 
 // Copyright 2024-2026 PianoMan0
 
-session_start();
+require_once __DIR__ . '/lib.php';
+secure_session_start();
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_post_csrf();
     $dbPath = __DIR__ . '/posts.db';
     $db = new PDO('sqlite:' . $dbPath);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -31,8 +33,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($ok) {
+                // regenerate session id to prevent fixation
+                session_regenerate_id(true);
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $user['username'];
+                // If password was stored in plaintext, re-hash it into a secure hash
+                if (!password_needs_rehash($stored, PASSWORD_DEFAULT) && $stored === $password) {
+                    $newHash = password_hash($password, PASSWORD_DEFAULT);
+                    if ($newHash) {
+                        $u = $db->prepare('UPDATE users SET password = :pw WHERE id = :id');
+                        $u->execute([':pw' => $newHash, ':id' => (int)$user['id']]);
+                    }
+                }
                 header('Location: index.php');
                 exit;
             }
@@ -65,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <h1>Login</h1>
     <form action="login.php" method="POST">
+        <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
         <br>

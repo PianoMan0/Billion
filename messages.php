@@ -2,7 +2,8 @@
 
 // Copyright 2024-2026 PianoMan0
 
-session_start();
+require_once __DIR__ . '/lib.php';
+secure_session_start();
 
 // Require users to log in.
 if (!isset($_SESSION['user_id'])) {
@@ -24,6 +25,7 @@ if (!is_dir($UPLOAD_DIR)) {
 
 // Handle sending a new direct message with optional uploads
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_post_csrf();
     $from_user = (int)$_SESSION['user_id'];
     $to_username = trim($_POST['to_username'] ?? '');
     $message_text = trim($_POST['message'] ?? '');
@@ -40,6 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Handle image upload
             if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+                if (!empty($_FILES['image']['size']) && $_FILES['image']['size'] > BILLION_MAX_IMAGE_BYTES) {
+                    // ignore oversized image
+                } else {
                 $image = $_FILES['image'];
                 // Determine mime type; prefer fileinfo if available
                 $mime = '';
@@ -85,10 +90,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 }
+                }
             }
 
             // Handle audio upload
             if (!empty($_FILES['audio']) && is_uploaded_file($_FILES['audio']['tmp_name']) && $_FILES['audio']['error'] === UPLOAD_ERR_OK) {
+                if (!empty($_FILES['audio']['size']) && $_FILES['audio']['size'] > BILLION_MAX_AUDIO_BYTES) {
+                    // ignore oversized audio
+                } else {
                 $audio = $_FILES['audio'];
                 $mimeType = '';
                 if (function_exists('finfo_open')) {
@@ -101,16 +110,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($mimeType === '') {
                     $mimeType = $audio['type'] ?? '';
                 }
-                $allowedTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm'];
+                $allowedTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'video/webm'];
+                $accepted = false;
+                if (stripos($mimeType, 'audio/') === 0) {
+                    $accepted = true;
+                }
+                if (stripos($mimeType, 'webm') !== false) {
+                    $accepted = true;
+                }
                 if (in_array($mimeType, $allowedTypes, true)) {
-                    $ext = strtolower(pathinfo($audio['name'], PATHINFO_EXTENSION)) ?: 'webm';
-                    $filename = md5(uniqid((string)rand(), true)) . '.' . preg_replace('/[^a-z0-9]/', '', $ext);
+                    $accepted = true;
+                }
+
+                    if ($accepted) {
+                    $extMap = [
+                        'audio/ogg' => 'ogg',
+                        'audio/webm' => 'webm',
+                        'video/webm' => 'webm',
+                        'audio/mpeg' => 'mp3',
+                        'audio/mp3' => 'mp3',
+                        'audio/wav' => 'wav',
+                        'audio/x-wav' => 'wav',
+                    ];
+                    $ext = strtolower(pathinfo($audio['name'], PATHINFO_EXTENSION));
+                    if (empty($ext) || strlen($ext) > 6) {
+                        $ext = $extMap[$mimeType] ?? '';
+                    }
+                    if ($ext === '') {
+                        $ext = $extMap[$mimeType] ?? 'webm';
+                    }
+                    $ext = preg_replace('/[^a-z0-9]/', '', $ext);
+                    $filename = md5(uniqid((string)rand(), true)) . '.' . $ext;
                     $fullPath = $UPLOAD_DIR . $filename;
                     if (move_uploaded_file($audio['tmp_name'], $fullPath)) {
                         $storedPath = $UPLOAD_DB_PREFIX . $filename;
                         $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
                         $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
                     }
+                }
                 }
             }
 
@@ -250,7 +287,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             From <a href="profile.php?id=<?=$message['from_user_id'];?>"><?php echo htmlspecialchars($message['from_username']); ?></a>
                             <?php } ?>
                         </strong>
-                        <em>(<?php echo $message['timestamp']; ?>)</em>
+                        <em>(<?php echo h($message['timestamp']); ?>)</em>
                     </div>
                 </li>
             <?php endforeach; ?>
@@ -261,6 +298,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <h3>Send a message</h3>
     <form action="messages.php" method="POST" enctype="multipart/form-data" id="dmForm">
+        <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <label>To (username): <input type="text" name="to_username" required></label><br>
         <textarea name="message" placeholder="Write a message..."></textarea><br>
         <input type="file" name="image" accept="image/jpeg" id="dmImage" style="display:none">
