@@ -133,6 +133,15 @@ try {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )");
 
+    // Optional: post_tags table to track mentions in posts
+    $db->exec("CREATE TABLE IF NOT EXISTS post_tags (
+        post_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        PRIMARY KEY (post_id, user_id),
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
 
     echo "Database setup complete.";
 } catch (PDOException $e) {

@@ -72,53 +72,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     // Delete the specified post (only owner's allowed)
     if (!empty($action) && $action === 'delete' && !empty($post_id)) {
-        // Verify owner before deleting anything
-        $ownerStmt = $db->prepare("SELECT user_id FROM posts WHERE id = :post_id LIMIT 1");
-        $ownerStmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-        $ownerStmt->execute();
-        $owner = $ownerStmt->fetchColumn();
-        if ((int)$owner !== (int)$_SESSION['user_id']) {
-            header('Location: index.php');
-            exit;
-        }
+        try {
+            // Verify owner before deleting anything
+            $ownerStmt = $db->prepare("SELECT user_id FROM posts WHERE id = :post_id LIMIT 1");
+            $ownerStmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+            $ownerStmt->execute();
+            $owner = $ownerStmt->fetchColumn();
+            if ((int)$owner !== (int)$_SESSION['user_id']) {
+                header('Location: index.php');
+                exit;
+            }
 
-        // Fetch uploads for the post first (so we can remove files)
-        $stmt = $db->prepare("SELECT file_name FROM uploads WHERE post_id = :post_id");
-        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-        $stmt->execute();
-        $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Fetch uploads for the post first (so we can remove files)
+            $stmt = $db->prepare("SELECT file_name FROM uploads WHERE post_id = :post_id");
+            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+            $stmt->execute();
+            $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        foreach ($files as $file) {
-            $fileName = $file['file_name'] ?? '';
-            if ($fileName === '') continue;
+            foreach ($files as $file) {
+                $fileName = $file['file_name'] ?? '';
+                if ($fileName === '') continue;
 
-            // Build absolute path and ensure it is inside the uploads directory
-            $candidate = realpath(__DIR__ . '/' . $fileName);
-            if ($candidate && strpos($candidate, realpath($UPLOAD_DIR)) === 0 && file_exists($candidate)) {
-                @unlink($candidate);
-            } else {
-                // as a fallback try basename (in case DB has just filename)
-                $candidate2 = $UPLOAD_DIR . basename($fileName);
-                if (file_exists($candidate2)) {
-                    @unlink($candidate2);
+                // Build absolute path and ensure it is inside the uploads directory
+                $candidate = realpath(__DIR__ . '/' . $fileName);
+                if ($candidate && strpos($candidate, realpath($UPLOAD_DIR)) === 0 && file_exists($candidate)) {
+                    @unlink($candidate);
+                } else {
+                    // as a fallback try basename (in case DB has just filename)
+                    $candidate2 = $UPLOAD_DIR . basename($fileName);
+                    if (file_exists($candidate2)) {
+                        @unlink($candidate2);
+                    }
                 }
             }
+
+            // Remove uploads rows (if table exists)
+            $db->exec("DELETE FROM uploads WHERE post_id = " . (int)$post_id);
+
+            // Remove post_tags rows (if table exists)
+            try {
+                $db->exec("DELETE FROM post_tags WHERE post_id = " . (int)$post_id);
+            } catch (Exception $e) {
+                // table may not exist in older DBs; ignore
+            }
+
+            // Remove the post itself
+            $stmt = $db->prepare("DELETE FROM posts WHERE id = :post_id");
+            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+            $stmt->execute();
+
+        } catch (Exception $e) {
+            error_log('Delete post failed: ' . $e->getMessage());
+            // avoid exposing details to users; redirect back
         }
-
-        // Remove uploads rows
-        $stmt = $db->prepare("DELETE FROM uploads WHERE post_id = :post_id");
-        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-        $stmt->execute();
-
-        // Remove post_tags rows
-        $stmt = $db->prepare("DELETE FROM post_tags WHERE post_id = :post_id");
-        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-        $stmt->execute();
-
-        // Remove the post itself
-        $stmt = $db->prepare("DELETE FROM posts WHERE id = :post_id");
-        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-        $stmt->execute();
 
         header('Location: index.php');
         exit;
@@ -177,12 +183,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Handle image upload (only if file actually uploaded)
         if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
             $image = $_FILES['image'];
-            // Use finfo to validate mime as well
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mime = finfo_file($finfo, $image['tmp_name']);
-            finfo_close($finfo);
+            // Determine mime type; prefer fileinfo if available
+            $mime = '';
+            if (function_exists('finfo_open')) {
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                if ($finfo !== false) {
+                    $mime = finfo_file($finfo, $image['tmp_name']);
+                    finfo_close($finfo);
+                }
+            }
+            if ($mime === '') {
+                $mime = $image['type'] ?? '';
+            }
 
-            if ($mime === 'image/jpeg' || $mime === 'image/pjpeg') {
+                if ($mime === 'image/jpeg' || $mime === 'image/pjpeg') {
                 // ensure GD available
                 if (function_exists('imagecreatefromjpeg')) {
                     $imageInfo = getimagesize($image['tmp_name']);
@@ -222,9 +236,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Handle audio upload (voice clip)
         if (!empty($_FILES['audio']) && is_uploaded_file($_FILES['audio']['tmp_name']) && $_FILES['audio']['error'] === UPLOAD_ERR_OK) {
             $audio = $_FILES['audio'];
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_file($finfo, $audio['tmp_name']);
-            finfo_close($finfo);
+            $mimeType = '';
+            if (function_exists('finfo_open')) {
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                if ($finfo !== false) {
+                    $mimeType = finfo_file($finfo, $audio['tmp_name']);
+                    finfo_close($finfo);
+                }
+            }
+            if ($mimeType === '') {
+                $mimeType = $audio['type'] ?? '';
+            }
 
             $allowedTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm'];
             if (in_array($mimeType, $allowedTypes, true)) {

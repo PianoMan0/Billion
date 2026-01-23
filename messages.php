@@ -41,9 +41,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Handle image upload
             if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
                 $image = $_FILES['image'];
-                $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mime = finfo_file($finfo, $image['tmp_name']);
-                finfo_close($finfo);
+                // Determine mime type; prefer fileinfo if available
+                $mime = '';
+                if (function_exists('finfo_open')) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    if ($finfo !== false) {
+                        $mime = finfo_file($finfo, $image['tmp_name']);
+                        finfo_close($finfo);
+                    }
+                }
+                if ($mime === '') {
+                    $mime = $image['type'] ?? '';
+                }
                 if ($mime === 'image/jpeg' || $mime === 'image/pjpeg') {
                     if (function_exists('imagecreatefromjpeg')) {
                         $imageInfo = getimagesize($image['tmp_name']);
@@ -81,9 +90,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Handle audio upload
             if (!empty($_FILES['audio']) && is_uploaded_file($_FILES['audio']['tmp_name']) && $_FILES['audio']['error'] === UPLOAD_ERR_OK) {
                 $audio = $_FILES['audio'];
-                $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mimeType = finfo_file($finfo, $audio['tmp_name']);
-                finfo_close($finfo);
+                $mimeType = '';
+                if (function_exists('finfo_open')) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    if ($finfo !== false) {
+                        $mimeType = finfo_file($finfo, $audio['tmp_name']);
+                        finfo_close($finfo);
+                    }
+                }
+                if ($mimeType === '') {
+                    $mimeType = $audio['type'] ?? '';
+                }
                 $allowedTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm'];
                 if (in_array($mimeType, $allowedTypes, true)) {
                     $ext = strtolower(pathinfo($audio['name'], PATHINFO_EXTENSION)) ?: 'webm';
