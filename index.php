@@ -4,6 +4,32 @@
 require_once __DIR__ . '/lib.php';
 secure_session_start();
 
+// Enable detailed errors for debugging (remove in production)
+@ini_set('display_errors', '1');
+@ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+
+set_exception_handler(function($e) {
+    http_response_code(500);
+    echo 'Internal error: ' . htmlspecialchars($e->getMessage());
+    error_log($e->getMessage());
+    exit;
+});
+
+// Runtime compatibility checks: fail fast with clear message
+if (!class_exists('PDO')) {
+    http_response_code(500);
+    echo 'Server configuration error: PDO extension is required.';
+    error_log('PDO extension missing');
+    exit;
+}
+if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+    http_response_code(500);
+    echo 'Server configuration error: PDO_SQLITE driver is required.';
+    error_log('PDO_SQLITE missing');
+    exit;
+}
+
 // Require users to log in.
 if (!isset($_SESSION['username']) || !isset($_SESSION['user_id'])) {
     header('Location: login.php');
@@ -22,6 +48,14 @@ try {
     http_response_code(500);
     echo 'Database error';
     exit;
+}
+
+// Detect if uploads table has file_type column (for backward compatibility)
+$UPLOAD_HAS_FILETYPE = false;
+try {
+    $UPLOAD_HAS_FILETYPE = db_has_column($db, 'uploads', 'file_type');
+} catch (Exception $e) {
+    $UPLOAD_HAS_FILETYPE = false;
 }
 
 // ensure defaults
@@ -55,6 +89,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $stmt->bindValue(':user_id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
         $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
         $stmt->execute();
+
+        // create a notification for the post owner (if not liking own post)
+        try {
+            $ownerQ = $db->prepare('SELECT user_id FROM posts WHERE id = :post_id LIMIT 1');
+            $ownerQ->execute([':post_id' => $post_id]);
+            $owner = (int)$ownerQ->fetchColumn();
+            if ($owner > 0 && $owner !== (int)$_SESSION['user_id']) {
+                $n = $db->prepare('INSERT INTO notifications (user_id, from_user_id, type, ref_id) VALUES (:user_id, :from_user, :type, :ref)');
+                $n->execute([':user_id' => $owner, ':from_user' => (int)$_SESSION['user_id'], ':type' => 'like', ':ref' => $post_id]);
+            }
+        } catch (Exception $e) {
+            // ignore notification errors
+        }
 
         header('Location: index.php');
         exit;
@@ -179,6 +226,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtInsertTag->bindValue(':post_id', $post_id, PDO::PARAM_INT);
                 $stmtInsertTag->bindValue(':user_id', (int)$f['id'], PDO::PARAM_INT);
                 $stmtInsertTag->execute();
+                // send mention notification
+                try {
+                    $notif = $db->prepare('INSERT INTO notifications (user_id, from_user_id, type, ref_id) VALUES (:user_id, :from_user, :type, :ref)');
+                    $notif->execute([':user_id' => (int)$f['id'], ':from_user' => $user_id, ':type' => 'mention', ':ref' => $post_id]);
+                } catch (Exception $e) {
+                    // ignore
+                }
             }
         }
 
@@ -227,10 +281,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $fullPath = $UPLOAD_DIR . $filename;
                             if (imagejpeg($resizedImage, $fullPath, 85)) {
                                 $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                                $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
-                                $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                                $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                                $stmt->execute();
+                                if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                    $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
+                                    $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                    $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                    $stmt->bindValue(':file_type', $mime, PDO::PARAM_STR);
+                                    $stmt->execute();
+                                } else {
+                                    $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                                    $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                    $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                    $stmt->execute();
+                                }
                             }
                             imagedestroy($sourceImage);
                             imagedestroy($resizedImage);
@@ -273,20 +335,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
                 if ($accepted) {
-                // Try ffprobe for duration if available
-                $duration = 0;
-                $ffprobeAvailable = false;
-                $probeCheck = @shell_exec('which ffprobe 2>/dev/null || where ffprobe 2>NUL');
-                if (!empty($probeCheck)) {
-                    $ffprobeAvailable = true;
-                }
-                if ($ffprobeAvailable) {
-                    $ffmpegCmd = "ffprobe -i " . escapeshellarg($audio['tmp_name']) . " -show_entries format=duration -v quiet -of csv=\"p=0\" 2>&1";
-                    $out = @shell_exec($ffmpegCmd);
-                    $duration = floatval(trim($out));
-                }
-                // Accept if duration unknown or <= 30.5s
-                    if ($duration <= 30.5) {
+                    // Accept audio without relying on ffprobe; size limits enforced earlier
                     // Derive extension from mime where possible
                     $extMap = [
                         'audio/ogg' => 'ogg',
@@ -309,10 +358,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $fullPath = $UPLOAD_DIR . $filename;
                         if (move_uploaded_file($audio['tmp_name'], $fullPath)) {
                         $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                        $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
-                        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                        $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                        $stmt->execute();
+                        if (!empty($UPLOAD_HAS_FILETYPE)) {
+                            $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
+                            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                            $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                            $stmt->bindValue(':file_type', $mimeType, PDO::PARAM_STR);
+                            $stmt->execute();
+                        } else {
+                            $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                            $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                            $stmt->execute();
+                        }
                     }
                 }
             }
@@ -400,7 +457,8 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php if ($new_messages_count > 0) {
             echo (int)$new_messages_count;
         } ?>
-        <a href="messages.php">Messages</a> | <button id="theme-toggle">Toggle Dark Mode</button>
+        <a href="notifications.php">Notifications</a> | <a href="messages.php">Messages</a> | <button id="theme-toggle">Toggle Dark Mode</button>
+        <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a> | <?php } ?>
         <a href="index.php?action=logout">Logout</a>
     </div>
 
@@ -469,8 +527,9 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             $display = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
 
                             // Shorten display for very long URLs
-                            if (mb_strlen($display) > 60) {
-                                $display = htmlspecialchars(mb_substr($url, 0, 57, 'UTF-8') . '...', ENT_QUOTES, 'UTF-8');
+                            if ((function_exists('mb_strlen') ? mb_strlen($display) : strlen($display)) > 60) {
+                                $short = function($s){ if (function_exists('mb_substr')) return mb_substr($s,0,57,'UTF-8'); return substr($s,0,57); };
+                                $display = htmlspecialchars($short($url) . '...', ENT_QUOTES, 'UTF-8');
                             }
 
                             return '<a href="' . $safeHref . '" target="_blank" rel="noopener noreferrer">' . $display . '</a>';

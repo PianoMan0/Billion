@@ -23,6 +23,10 @@ if (!is_dir($UPLOAD_DIR)) {
     @mkdir($UPLOAD_DIR, 0755, true);
 }
 
+// detect file_type column presence to stay compatible with older DBs
+$UPLOAD_HAS_FILETYPE = false;
+try { $UPLOAD_HAS_FILETYPE = db_has_column($db, 'uploads', 'file_type'); } catch (Exception $e) { $UPLOAD_HAS_FILETYPE = false; }
+
 // Handle sending a new direct message with optional uploads
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_post_csrf();
@@ -81,8 +85,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $fullPath = $UPLOAD_DIR . $filename;
                                 if (imagejpeg($resizedImage, $fullPath, 85)) {
                                     $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                                    $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
-                                    $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                                    if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                        $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
+                                        $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mime]);
+                                    } else {
+                                        $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
+                                        $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                                    }
                                 }
                                 imagedestroy($sourceImage);
                                 imagedestroy($resizedImage);
@@ -144,8 +153,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $fullPath = $UPLOAD_DIR . $filename;
                     if (move_uploaded_file($audio['tmp_name'], $fullPath)) {
                         $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                        $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
-                        $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                        if (!empty($UPLOAD_HAS_FILETYPE)) {
+                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
+                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mimeType]);
+                        } else {
+                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
+                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                        }
                     }
                 }
                 }

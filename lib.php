@@ -4,7 +4,7 @@
 // - CSRF token helpers
 // - small utility wrappers
 
-function secure_session_start(): void {
+function secure_session_start() {
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
     $cookieParams = session_get_cookie_params();
     if (PHP_VERSION_ID >= 70300) {
@@ -34,28 +34,37 @@ function secure_session_start(): void {
     $_SESSION['last_activity'] = time();
 }
 
-function h(string $s): string {
-    return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+function h($s) {
+    return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 }
 
-function get_csrf_token(): string {
+function get_csrf_token() {
     if (!isset($_SESSION['csrf_token'])) {
-        try {
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        } catch (Exception $e) {
-            // fallback
+        // try random_bytes, fall back to openssl, then to weaker uniqid
+        if (function_exists('random_bytes')) {
+            try {
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            } catch (Exception $e) {
+                $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+            }
+        } elseif (function_exists('openssl_random_pseudo_bytes')) {
             $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+        } else {
+            $_SESSION['csrf_token'] = bin2hex(sha1(uniqid((string)mt_rand(), true)));
         }
     }
     return $_SESSION['csrf_token'];
 }
 
-function verify_csrf_token(string $token): bool {
+function verify_csrf_token($token) {
     if (!isset($_SESSION['csrf_token'])) return false;
-    return hash_equals((string)$_SESSION['csrf_token'], (string)$token);
+    if (function_exists('hash_equals')) {
+        return hash_equals((string)$_SESSION['csrf_token'], (string)$token);
+    }
+    return (string)$_SESSION['csrf_token'] === (string)$token;
 }
 
-function require_post_csrf(): void {
+function require_post_csrf() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $token = $_POST['csrf_token'] ?? '';
         if (!verify_csrf_token((string)$token)) {
@@ -64,6 +73,22 @@ function require_post_csrf(): void {
             exit;
         }
     }
+}
+
+function db_has_column($db, $table, $col) {
+    try {
+        if (!is_object($db)) return false;
+        $stmt = $db->prepare("PRAGMA table_info(" . $table . ")");
+        if ($stmt === false) return false;
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            if (isset($r['name']) && $r['name'] === $col) return true;
+        }
+    } catch (Exception $e) {
+        // assume not present on error
+    }
+    return false;
 }
 
 // Basic constants for uploads
