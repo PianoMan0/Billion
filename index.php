@@ -485,10 +485,12 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             foreach ($files as $file) {
                                 $file = trim($file);
                                 if ($file === '') continue;
-                                $safeUrl = htmlspecialchars($file, ENT_QUOTES, 'UTF-8');
-                                if (preg_match('/\.jpg$/i', $file)) {
+                                // Only allow rendering files from the uploads directory; use basename to avoid traversal
+                                $base = basename($file);
+                                $safeUrl = htmlspecialchars($UPLOAD_DB_PREFIX . $base, ENT_QUOTES, 'UTF-8');
+                                if (preg_match('/\.jpg$/i', $base)) {
                                     echo "<p><img src='" . $safeUrl . "' alt='post image'></p>";
-                                } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $file)) {
+                                } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $base)) {
                                     echo "<p><audio controls src='" . $safeUrl . "'></audio></p>";
                                 }
                             }

@@ -242,10 +242,11 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             foreach ($files as $file) {
                                 $file = trim($file);
                                 if ($file === '') continue;
-                                $safeUrl = htmlspecialchars($file, ENT_QUOTES, 'UTF-8');
-                                if (preg_match('/\.jpg$/i', $file)) {
+                                $base = basename($file);
+                                $safeUrl = htmlspecialchars($UPLOAD_DB_PREFIX . $base, ENT_QUOTES, 'UTF-8');
+                                if (preg_match('/\.jpg$/i', $base)) {
                                     echo "<p><img src='" . $safeUrl . "' alt='attachment' style='max-width:280px'></p>";
-                                } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $file)) {
+                                } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $base)) {
                                     echo "<p><audio controls src='" . $safeUrl . "'></audio></p>";
                                 }
                             }
@@ -317,30 +318,83 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <button type="submit">Send</button>
     </form>
 
-    <script src="recorder.js"></script>
+        <script>
+        const dmIsPoll = document.getElementById('isPoll');
+        const dmPollArea = document.getElementById('pollArea');
+        const dmAddOption = document.getElementById('addOptionBtn');
+        if (dmIsPoll) {
+                dmIsPoll.addEventListener('change', () => {
+                        dmPollArea.style.display = dmIsPoll.checked ? 'block' : 'none';
+                });
+        }
+        if (dmAddOption) {
+                dmAddOption.addEventListener('click', () => {
+                        const div = document.getElementById('pollOptions');
+                        const index = div.querySelectorAll('input[name="options[]"]').length + 1;
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.name = 'options[]';
+                        input.placeholder = 'Option ' + index;
+                        div.appendChild(input);
+                        div.appendChild(document.createElement('br'));
+                });
+        }
 
-    <script>
-    const dmIsPoll = document.getElementById('isPoll');
-    const dmPollArea = document.getElementById('pollArea');
-    const dmAddOption = document.getElementById('addOptionBtn');
-    if (dmIsPoll) {
-        dmIsPoll.addEventListener('change', () => {
-            dmPollArea.style.display = dmIsPoll.checked ? 'block' : 'none';
-        });
-    }
-    if (dmAddOption) {
-        dmAddOption.addEventListener('click', () => {
-            const div = document.getElementById('pollOptions');
-            const index = div.querySelectorAll('input[name="options[]"]').length + 1;
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.name = 'options[]';
-            input.placeholder = 'Option ' + index;
-            div.appendChild(input);
-            div.appendChild(document.createElement('br'));
-        });
-    }
-    </script>
+        // Inline recorder code (missing recorder.js previously). Attaches recording to #dmAudio
+        (function(){
+            let recorder = null;
+            let chunks = [];
+            const startBtn = document.getElementById('startRecBtn');
+            if (!startBtn) return;
+
+            function canRecord() {
+                return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+            }
+
+            startBtn.addEventListener('click', async function() {
+                if (!canRecord()) {
+                    alert('Recording not supported in this browser');
+                    return;
+                }
+
+                if (!recorder) {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        recorder = new MediaRecorder(stream);
+                        chunks = [];
+                        recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+                        recorder.onstop = () => {
+                            const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
+                            const filename = 'voice_' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
+                            try {
+                                const file = new File([blob], filename, { type: blob.type });
+                                const dt = new DataTransfer();
+                                dt.items.add(file);
+                                const audioInput = document.getElementById('dmAudio');
+                                if (audioInput) {
+                                    audioInput.files = dt.files;
+                                    alert('Voice attached. Send message to upload.');
+                                } else {
+                                    alert('No audio input found to attach recording.');
+                                }
+                            } catch (err) {
+                                alert('Failed to attach recording: ' + err.message);
+                            }
+                            recorder = null;
+                            startBtn.textContent = 'Record Voice';
+                        };
+                        recorder.start();
+                        startBtn.textContent = 'Stop & Attach';
+                    } catch (err) {
+                        alert('Could not start recording: ' + err.message);
+                        recorder = null;
+                    }
+                } else {
+                    recorder.stop();
+                }
+            });
+        })();
+        </script>
 
 
     <div style="margin-top:50px"><a href="index.php">&#171; Back to News Feed</a></div>

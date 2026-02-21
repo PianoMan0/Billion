@@ -38,7 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $user['username'];
                 // If password was stored in plaintext, re-hash it into a secure hash
-                if (!password_needs_rehash($stored, PASSWORD_DEFAULT) && $stored === $password) {
+                // If the DB contains a plaintext password (legacy), replace it with a secure hash
+                if ($stored === $password) {
                     $newHash = password_hash($password, PASSWORD_DEFAULT);
                     if ($newHash) {
                         $u = $db->prepare('UPDATE users SET password = :pw WHERE id = :id');

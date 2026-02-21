@@ -36,7 +36,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Handle profile image upload
-    if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name'])) {
+    // Only allow profile image updates for the logged-in user
+    if ((int)($_SESSION['user_id'] ?? 0) === (int)$profile_id) {
+        if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name'])) {
         $UPLOAD_DIR = __DIR__ . '/uploads/';
         if (!is_dir($UPLOAD_DIR)) {
             @mkdir($UPLOAD_DIR, 0755, true);
@@ -66,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
                         imagecopyresampled($resizedImage, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
 
-                        $dest = $UPLOAD_DIR . 'profile_' . $profile_id . '.jpg';
+                        $dest = $UPLOAD_DIR . 'profile_' . (int)$profile_id . '.jpg';
                         if (!imagejpeg($resizedImage, $dest, 85)) {
                             error_log('imagejpeg failed');
                         }
@@ -80,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 error_log('missing image info for profile image');
             }
             }
+        }
         }
     }
 
@@ -134,7 +137,7 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </form>
     <?php endif; ?>
 
-    <img src="uploads/profile_<?= $profile_id; ?>.jpg" onerror="this.onerror=null; this.src='uploads/placeholder-image.svg';" alt="Profile Picture">
+    <img src="<?php echo htmlspecialchars('uploads/profile_' . (int)$profile_id . '.jpg', ENT_QUOTES, 'UTF-8'); ?>" onerror="this.onerror=null; this.src='uploads/placeholder-image.svg';" alt="Profile Picture">
 
     <h2>Profile page for <?= htmlspecialchars($profile['username'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
     <?php if (!empty($profile['profile'])): ?>
