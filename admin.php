@@ -2,7 +2,7 @@
 require_once __DIR__ . '/lib.php';
 secure_session_start();
 
-$ADMIN_PASSWORD = 'GoDodgers!';
+$ADMIN_PASSWORD = 'AdminPassword'; // Change this to your admin's password
 
 // DB connect
 try {
@@ -15,16 +15,23 @@ try {
 
 // login
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_password'])) {
+    require_post_csrf();
     $pw = (string)($_POST['admin_password']);
     if (hash_equals($ADMIN_PASSWORD, $pw)) {
+        session_regenerate_id(true);
         $_SESSION['is_admin'] = 1;
     } else {
         $error = 'Incorrect password';
     }
 }
 
-// handle logout
+// handle logout (require CSRF token)
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    $token = $_GET['csrf_token'] ?? '';
+    if (!verify_csrf_token((string)$token)) {
+        header('Location: admin.php');
+        exit;
+    }
     unset($_SESSION['is_admin']);
     header('Location: index.php');
     exit;
@@ -37,6 +44,7 @@ if (empty($_SESSION['is_admin'])) {
     <h2>Admin Login</h2>
     <?php if (!empty($error)) echo '<p style="color:red">' . h($error) . '</p>'; ?>
     <form method="POST">
+        <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <label>Password: <input type="password" name="admin_password"></label>
         <button type="submit">Login</button>
     </form>
@@ -71,7 +79,8 @@ foreach ($uploadRows as $r) {
 <head><meta charset="utf-8"><title>Admin Dashboard</title></head>
 <body>
 <h1>Admin Dashboard</h1>
-<p><a href="index.php">Back to site</a> | <a href="admin.php?action=logout">Logout</a></p>
+<?php $csrf_query = 'csrf_token=' . urlencode(get_csrf_token()); ?>
+<p><a href="index.php">Back to site</a> | <a href="<?php echo h('admin.php?action=logout&' . $csrf_query); ?>">Logout</a></p>
 <h2>Overview</h2>
 <ul>
     <li>Total users: <?php echo $totalUsers; ?></li>
@@ -101,4 +110,3 @@ foreach ($recent as $r) {
 
 </body>
 </html>
-

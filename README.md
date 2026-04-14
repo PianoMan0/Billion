@@ -4,7 +4,7 @@
 Billion helps people create safe social media websites, just for their family and friends.
 
 ## Step 1
-Go to db-setup.php line 19 and change the example users and example passwords to your family and friends' usernames and passwords. 
+Go to db_setup.php line 19 and change the example users and example passwords to your family and friends' usernames and passwords. 
 
 ## Step 2
 Go to admin.php and change the example password to your password.

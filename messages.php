@@ -84,13 +84,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $filename = md5(uniqid((string)rand(), true)) . '.jpg';
                                 $fullPath = $UPLOAD_DIR . $filename;
                                 if (imagejpeg($resizedImage, $fullPath, 85)) {
-                                    $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                                    if (!empty($UPLOAD_HAS_FILETYPE)) {
-                                        $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
-                                        $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mime]);
+                                    @chmod($fullPath, 0644);
+                                    $realFull = realpath($fullPath);
+                                    if ($realFull && strpos($realFull, realpath($UPLOAD_DIR)) === 0 && file_exists($realFull)) {
+                                        $storedPath = $UPLOAD_DB_PREFIX . $filename;
+                                        if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
+                                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mime]);
+                                        } else {
+                                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
+                                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                                        }
                                     } else {
-                                        $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
-                                        $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                                        error_log('Message image upload failed or outside uploads dir: ' . $fullPath);
                                     }
                                 }
                                 imagedestroy($sourceImage);
@@ -152,13 +158,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $filename = md5(uniqid((string)rand(), true)) . '.' . $ext;
                     $fullPath = $UPLOAD_DIR . $filename;
                     if (move_uploaded_file($audio['tmp_name'], $fullPath)) {
-                        $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                        if (!empty($UPLOAD_HAS_FILETYPE)) {
-                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
-                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mimeType]);
+                        @chmod($fullPath, 0644);
+                        $realFull = realpath($fullPath);
+                        if ($realFull && strpos($realFull, realpath($UPLOAD_DIR)) === 0 && file_exists($realFull)) {
+                            $storedPath = $UPLOAD_DB_PREFIX . $filename;
+                            if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                $i = $db->prepare('INSERT INTO uploads (message_id, file_name, file_type) VALUES (:message_id, :file_name, :file_type)');
+                                $i->execute([':message_id' => $message_id, ':file_name' => $storedPath, ':file_type' => $mimeType]);
+                            } else {
+                                $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
+                                $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                            }
                         } else {
-                            $i = $db->prepare('INSERT INTO uploads (message_id, file_name) VALUES (:message_id, :file_name)');
-                            $i->execute([':message_id' => $message_id, ':file_name' => $storedPath]);
+                            error_log('Message audio upload failed or outside uploads dir: ' . $fullPath);
                         }
                     }
                 }
@@ -233,7 +245,8 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 <body>
 
-    <div class="logout"><a href="index.php?action=logout">Logout</a></div>
+    <?php $csrf_query = 'csrf_token=' . urlencode(get_csrf_token()); ?>
+    <div class="logout"><a href="<?php echo h('index.php?action=logout&' . $csrf_query); ?>">Logout</a></div>
 
     <a href="index.php"><img src="billion_small.png" height=100 style="margin-bottom:15px"></a><br>
 
@@ -287,7 +300,8 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 if ($userVoted) {
                                     echo '<li>' . htmlspecialchars($opt['option_text'], ENT_QUOTES, 'UTF-8') . ' — ' . $votes . ' votes</li>';
                                 } else {
-                                    echo '<li><a href="index.php?action=vote&poll_id=' . (int)$poll['id'] . '&option_id=' . $optId . '">' . htmlspecialchars($opt['option_text'], ENT_QUOTES, 'UTF-8') . '</a></li>';
+                                    $voteUrl = 'index.php?action=vote&poll_id=' . (int)$poll['id'] . '&option_id=' . $optId . '&' . $csrf_query;
+                                    echo '<li><a href="' . h($voteUrl) . '">' . htmlspecialchars($opt['option_text'], ENT_QUOTES, 'UTF-8') . '</a></li>';
                                 }
                             }
                             echo '</ul></div>';

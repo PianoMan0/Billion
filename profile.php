@@ -69,7 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         imagecopyresampled($resizedImage, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
 
                         $dest = $UPLOAD_DIR . 'profile_' . (int)$profile_id . '.jpg';
-                        if (!imagejpeg($resizedImage, $dest, 85)) {
+                        if (imagejpeg($resizedImage, $dest, 85)) {
+                            @chmod($dest, 0644);
+                            $real = realpath($dest);
+                            if (!($real && strpos($real, realpath($UPLOAD_DIR)) === 0 && file_exists($real))) {
+                                error_log('Profile image write failed or outside uploads dir: ' . $dest);
+                            }
+                        } else {
                             error_log('imagejpeg failed');
                         }
                         imagedestroy($sourceImage);
@@ -124,7 +130,8 @@ $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 <body>
 
-    <div class="logout"><a href="index.php?action=logout">Logout</a></div>
+    <?php $csrf_query = 'csrf_token=' . urlencode(get_csrf_token()); ?>
+    <div class="logout"><a href="<?php echo h('index.php?action=logout&' . $csrf_query); ?>">Logout</a></div>
 
     <a href="index.php"><img src="billion_small.png" height=100 style="margin-bottom:15px"></a><br>
 

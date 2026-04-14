@@ -75,6 +75,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? null;
     $post_id = isset($_GET['post_id']) ? (int)$_GET['post_id'] : null;
 
+    // Protect state-changing GET actions with a CSRF token passed as `csrf_token`
+    $csrf_token = $_REQUEST['csrf_token'] ?? '';
+    $csrf_ok = !empty($csrf_token) && verify_csrf_token((string)$csrf_token);
+
+    // Block well-known state actions without a valid token
+    $state_actions = ['logout', 'like', 'unlike', 'delete', 'vote'];
+    if (in_array($action, $state_actions, true) && !$csrf_ok) {
+        header('Location: index.php');
+        exit;
+    }
+
     // Log out
     if (!empty($action) && $action === 'logout') {
         session_unset();
@@ -280,18 +291,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $filename = md5(uniqid((string)rand(), true)) . '.jpg';
                             $fullPath = $UPLOAD_DIR . $filename;
                             if (imagejpeg($resizedImage, $fullPath, 85)) {
-                                $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                                if (!empty($UPLOAD_HAS_FILETYPE)) {
-                                    $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
-                                    $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                                    $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                                    $stmt->bindValue(':file_type', $mime, PDO::PARAM_STR);
-                                    $stmt->execute();
+                                @chmod($fullPath, 0644);
+                                $realFull = realpath($fullPath);
+                                // Only store files that actually landed inside the uploads directory
+                                if ($realFull && strpos($realFull, realpath($UPLOAD_DIR)) === 0 && file_exists($realFull)) {
+                                    $storedPath = $UPLOAD_DB_PREFIX . $filename;
+                                    if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                        $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
+                                        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                        $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                        $stmt->bindValue(':file_type', $mime, PDO::PARAM_STR);
+                                        $stmt->execute();
+                                    } else {
+                                        $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                                        $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                        $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                        $stmt->execute();
+                                    }
                                 } else {
-                                    $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
-                                    $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                                    $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                                    $stmt->execute();
+                                    error_log('Upload write failed or outside uploads dir: ' . $fullPath);
                                 }
                             }
                             imagedestroy($sourceImage);
@@ -357,18 +375,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $filename = md5(uniqid((string)rand(), true)) . '.' . $ext;
                     $fullPath = $UPLOAD_DIR . $filename;
                         if (move_uploaded_file($audio['tmp_name'], $fullPath)) {
-                        $storedPath = $UPLOAD_DB_PREFIX . $filename;
-                        if (!empty($UPLOAD_HAS_FILETYPE)) {
-                            $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
-                            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                            $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                            $stmt->bindValue(':file_type', $mimeType, PDO::PARAM_STR);
-                            $stmt->execute();
+                        @chmod($fullPath, 0644);
+                        $realFull = realpath($fullPath);
+                        if ($realFull && strpos($realFull, realpath($UPLOAD_DIR)) === 0 && file_exists($realFull)) {
+                            $storedPath = $UPLOAD_DB_PREFIX . $filename;
+                            if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
+                                $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                $stmt->bindValue(':file_type', $mimeType, PDO::PARAM_STR);
+                                $stmt->execute();
+                            } else {
+                                $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                                $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                $stmt->execute();
+                            }
                         } else {
-                            $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
-                            $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
-                            $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
-                            $stmt->execute();
+                            error_log('Audio upload failed or outside uploads dir: ' . $fullPath);
                         }
                     }
                 }
@@ -453,13 +477,14 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </head>
 <body>
 
+    <?php $csrf_query = 'csrf_token=' . urlencode(get_csrf_token()); ?>
     <div class="logout">
         <?php if ($new_messages_count > 0) {
             echo (int)$new_messages_count;
         } ?>
         <a href="notifications.php">Notifications</a> | <a href="messages.php">Messages</a> | <button id="theme-toggle">Toggle Dark Mode</button>
         <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a> | <?php } ?>
-        <a href="index.php?action=logout">Logout</a>
+        <a href="<?php echo h('index.php?action=logout&' . $csrf_query); ?>">Logout</a>
     </div>
 
     <img id="logo" src="billion_small.png" height=100 style="margin-bottom:15px"><br>
@@ -485,8 +510,14 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li>
                     <div class="right">
                        <span style="margin-right: 6px"><?= (int)$post['like_count']; ?> Likes</span>
-                       <?php if ($post['user_liked']) { ?><a href="index.php?action=unlike&post_id=<?= (int)$post['id']; ?>">Unlike</a><?php }
-                       else { ?><a href="index.php?action=like&post_id=<?= (int)$post['id']; ?>">Like</a><?php } ?>
+                       <?php
+                           $csrf_q = '&' . $csrf_query;
+                           if ($post['user_liked']) {
+                               echo '<a href="' . h('index.php?action=unlike&post_id=' . (int)$post['id'] . $csrf_q) . '">Unlike</a>';
+                           } else {
+                               echo '<a href="' . h('index.php?action=like&post_id=' . (int)$post['id'] . $csrf_q) . '">Like</a>';
+                           }
+                       ?>
                     </div>
                     <div class="left">
                         <img src="<?= htmlspecialchars($UPLOAD_DB_PREFIX . 'profile_' . (int)$post['user_id'] . '.jpg'); ?>" onerror="this.onerror=null; this.src='uploads/placeholder-image.svg';" alt="avatar">
@@ -562,7 +593,8 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <strong>
                             <a href="profile.php?id=<?= (int)$post['user_id']; ?>"><?php echo htmlspecialchars($post['username'], ENT_QUOTES, 'UTF-8'); ?></a>
                             <?php if ($post['username'] === $_SESSION['username']) { ?>
-                                <a href="index.php?action=delete&post_id=<?= (int)$post['id']; ?>" title="Delete post"> &#128465;</a>
+                                <?php $delUrl = 'index.php?action=delete&post_id=' . (int)$post['id'] . '&' . $csrf_query; ?>
+                                <a href="<?php echo h($delUrl); ?>" title="Delete post" onclick="return confirm('Delete this post?')"> &#128465;</a>
                             <?php } ?>
                         </strong>
                         <em><?php

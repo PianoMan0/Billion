@@ -45,7 +45,11 @@ function get_csrf_token() {
             try {
                 $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             } catch (Exception $e) {
-                $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+                if (function_exists('openssl_random_pseudo_bytes')) {
+                    $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+                } else {
+                    $_SESSION['csrf_token'] = bin2hex(sha1(uniqid((string)mt_rand(), true)));
+                }
             }
         } elseif (function_exists('openssl_random_pseudo_bytes')) {
             $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
@@ -78,7 +82,10 @@ function require_post_csrf() {
 function db_has_column($db, $table, $col) {
     try {
         if (!is_object($db)) return false;
-        $stmt = $db->prepare("PRAGMA table_info(" . $table . ")");
+        // Sanitize table name to avoid injection into PRAGMA query
+        $safeTable = preg_replace('/[^0-9A-Za-z_]/', '', (string)$table);
+        if ($safeTable === '') return false;
+        $stmt = $db->prepare("PRAGMA table_info(\"" . $safeTable . "\")");
         if ($stmt === false) return false;
         $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
