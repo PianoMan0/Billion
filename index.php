@@ -318,10 +318,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             }
-            }
         }
 
         // Handle audio upload (voice clip)
+
+
         if (!empty($_FILES['audio']) && is_uploaded_file($_FILES['audio']['tmp_name']) && $_FILES['audio']['error'] === UPLOAD_ERR_OK) {
             if (!empty($_FILES['audio']['size']) && $_FILES['audio']['size'] > BILLION_MAX_AUDIO_BYTES) {
                 // ignore oversized audio

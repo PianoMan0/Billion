@@ -25,11 +25,10 @@ if ($profile_id <= 0) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_post_csrf();
     $profileText = trim((string)($_POST['profile'] ?? ''));
-    $from_user_id = isset($_POST['from_user_id']) ? (int)$_POST['from_user_id'] : 0;
-    $to_user_id = isset($_POST['to_user_id']) ? (int)$_POST['to_user_id'] : 0;
     $message = trim((string)($_POST['message'] ?? ''));
 
     if ($profileText !== '' && isset($_SESSION['user_id'])) {
+
         // Update the user's profile
         $stmt = $db->prepare('UPDATE users SET profile = :profile WHERE id = :user_id');
         $stmt->execute([':profile' => $profileText, ':user_id' => (int)$_SESSION['user_id']]);
@@ -39,13 +38,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Only allow profile image updates for the logged-in user
     if ((int)($_SESSION['user_id'] ?? 0) === (int)$profile_id) {
         if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name'])) {
-        $UPLOAD_DIR = __DIR__ . '/uploads/';
-        if (!is_dir($UPLOAD_DIR)) {
-            @mkdir($UPLOAD_DIR, 0755, true);
-        }
+            $UPLOAD_DIR = __DIR__ . '/uploads/';
+            if (!is_dir($UPLOAD_DIR)) {
+                @mkdir($UPLOAD_DIR, 0755, true);
+            }
 
-        $image = $_FILES['image'];
-        if ($image['error'] === UPLOAD_ERR_OK) {
+            $image = $_FILES['image'];
+            if ($image['error'] === UPLOAD_ERR_OK) {
+
             if (!empty($image['size']) && $image['size'] > BILLION_MAX_IMAGE_BYTES) {
                 // oversized; ignore
             } else {
@@ -92,11 +92,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($from_user_id > 0 && $to_user_id > 0 && $message !== '') {
-        // Add a new direct message
+    if ($profile_id > 0 && $message !== '') {
+        // Add a new direct message to the profile being viewed.
+        // Always trust the route id + session user, never client-supplied ids.
         $stmt = $db->prepare('INSERT INTO messages (to_user_id, from_user_id, message) VALUES (:to_user_id, :from_user_id, :message)');
-        $stmt->execute([':to_user_id' => $to_user_id, ':from_user_id' => $from_user_id, ':message' => $message]);
+        $stmt->execute([':to_user_id' => (int)$profile_id, ':from_user_id' => (int)$_SESSION['user_id'], ':message' => $message]);
     }
+
 
     header('Location: profile.php?id=' . $profile_id);
     exit;

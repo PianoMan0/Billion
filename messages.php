@@ -113,8 +113,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($_FILES['audio']['size']) && $_FILES['audio']['size'] > BILLION_MAX_AUDIO_BYTES) {
                     // ignore oversized audio
                 } else {
-                $audio = $_FILES['audio'];
-                $mimeType = '';
+                    $audio = $_FILES['audio'];
+
+                    $mimeType = '';
+
                 if (function_exists('finfo_open')) {
                     $finfo = finfo_open(FILEINFO_MIME_TYPE);
                     if ($finfo !== false) {
@@ -138,8 +140,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                     if ($accepted) {
-                    $extMap = [
+                    	$extMap = [
                         'audio/ogg' => 'ogg',
+
                         'audio/webm' => 'webm',
                         'video/webm' => 'webm',
                         'audio/mpeg' => 'mp3',
