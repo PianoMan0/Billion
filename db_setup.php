@@ -153,6 +153,8 @@ try {
     )");
 
 
+
+
     echo "Database setup complete.";
 } catch (PDOException $e) {
     echo "Error: " . $e->getMessage();

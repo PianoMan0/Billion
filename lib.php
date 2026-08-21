@@ -102,4 +102,6 @@ function db_has_column($db, $table, $col) {
 define('BILLION_MAX_IMAGE_BYTES', 3 * 1024 * 1024); // 3 MB
 define('BILLION_MAX_AUDIO_BYTES', 6 * 1024 * 1024); // 6 MB
 
+
 ?>
+

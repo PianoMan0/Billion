@@ -55,7 +55,24 @@ form button:hover {
     background-color: #1e90ff;
 }
 
+/* Composer action row (Record Voice / Attach GIF / Submit) */
+.composer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+
+.composer-actions #submitBtn {
+    margin-left: 0;
+}
+
+
 .capture-row {
+
     display: flex;
     gap: 16px;
     margin-top: 10px;
@@ -187,6 +204,22 @@ body.dark-mode, [data-theme="dark"] {
   color: #e6e6e6;
 }
 
+/* Improve dark-mode media + link contrast */
+body.dark-mode a, [data-theme="dark"] a {
+  color: #90caf9;
+}
+
+body.dark-mode img,
+[data-theme="dark"] img {
+  filter: saturate(1.05) contrast(1.03);
+}
+
+/* Better readability for long content */
+.post-content, li .post-content {
+  word-break: break-word;
+}
+
+
 .dark-mode a, [data-theme="dark"] a {
   color: #90caf9;
 }
@@ -236,9 +269,15 @@ body.dark-mode, [data-theme="dark"] {
   color: #e6e6e6;
 }
 
-.dark-mode .post-footer, [data-theme="dark"] .post-footer {
+dark-mode .post-footer, [data-theme="dark"] .post-footer {
   color: #90caf9;
 }
+
+body.dark-mode textarea,
+[data-theme="dark"] textarea {
+  line-height: 1.4;
+}
+
 
 .dark-mode .post-footer .username, [data-theme="dark"] .post-footer .username {
   color: #b3e5fc;

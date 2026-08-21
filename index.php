@@ -73,6 +73,28 @@ if (!is_dir($UPLOAD_DIR)) {
 // Handle GET actions (likes, unlikes, delete, logout)
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? null;
+
+    // Mention autocomplete endpoint (only users suggestion for "@")
+    if (!empty($action) && $action === 'mention_suggest') {
+        header('Content-Type: application/json; charset=utf-8');
+        $q = trim((string)($_GET['query'] ?? ''));
+        // keep it family-safe: only allow valid mention token chars
+        $q = preg_replace('/[^A-Za-z0-9_]/', '', $q);
+        if ($q === '') {
+            echo json_encode(['suggestions' => []]);
+            exit;
+        }
+        try {
+            $stmt = $db->prepare('SELECT username FROM users WHERE username LIKE :p ESCAPE "\\" ORDER BY username ASC LIMIT 10');
+            $stmt->execute([':p' => $q . '%']);
+            $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            echo json_encode(['suggestions' => array_values($users)]);
+        } catch (Exception $e) {
+            echo json_encode(['suggestions' => []]);
+        }
+        exit;
+    }
+
     $post_id = isset($_GET['post_id']) ? (int)$_GET['post_id'] : null;
 
     // Protect state-changing GET actions with a CSRF token passed as `csrf_token`
@@ -215,7 +237,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user_id = (int)$_SESSION['user_id'];
     $content = trim($_POST['content'] ?? '');
 
-    if (!empty($user_id) && $content !== '') {
+    $hasGifUpload = !empty($_FILES['gif']) && is_uploaded_file($_FILES['gif']['tmp_name']) && $_FILES['gif']['error'] === UPLOAD_ERR_OK;
+
+    if (!empty($user_id) && ($content !== '' || $hasGifUpload)) {
         // Insert the new post into the database
         $stmt = $db->prepare("INSERT INTO posts (user_id, content) VALUES (:user_id, :content)");
         $stmt->bindValue(':user_id', $user_id, PDO::PARAM_INT);
@@ -248,6 +272,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Handle image upload (only if file actually uploaded)
+
+        // Handle gif upload (only if file actually uploaded)
+        $maxBytes = 6 * 1024 * 1024; // 6MB GIFs
+        if (!empty($_FILES['gif']) && is_uploaded_file($_FILES['gif']['tmp_name']) && $_FILES['gif']['error'] === UPLOAD_ERR_OK) {
+            if (isset($_FILES['gif']['size']) && (int)$_FILES['gif']['size'] > $maxBytes) {
+                // ignore oversized gif
+            } else {
+                $gif = $_FILES['gif'];
+
+                // Basic magic-byte check for GIF: "GIF87a" or "GIF89a"
+                $fp = fopen($gif['tmp_name'], 'rb');
+                $sig = $fp ? fread($fp, 6) : '';
+                if ($fp) fclose($fp);
+                $sig = strtolower((string)$sig);
+                $isGif = $sig === 'gif87a' || $sig === 'gif89a';
+
+                if ($isGif) {
+                    $filename = md5(uniqid((string)mt_rand(), true)) . '.gif';
+                    $fullPath = $UPLOAD_DIR . $filename;
+
+                    if (move_uploaded_file($gif['tmp_name'], $fullPath)) {
+                        @chmod($fullPath, 0644);
+                        $realFull = realpath($fullPath);
+                        if ($realFull && strpos($realFull, realpath($UPLOAD_DIR)) === 0 && file_exists($realFull)) {
+                            $storedPath = $UPLOAD_DB_PREFIX . $filename;
+                            if (!empty($UPLOAD_HAS_FILETYPE)) {
+                                $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name, file_type) VALUES (:post_id, :file_name, :file_type)");
+                                $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                $stmt->bindValue(':file_type', 'image/gif', PDO::PARAM_STR);
+                                $stmt->execute();
+                            } else {
+                                $stmt = $db->prepare("INSERT INTO uploads (post_id, file_name) VALUES (:post_id, :file_name)");
+                                $stmt->bindValue(':post_id', $post_id, PDO::PARAM_INT);
+                                $stmt->bindValue(':file_name', $storedPath, PDO::PARAM_STR);
+                                $stmt->execute();
+                            }
+                        } else {
+                            error_log('GIF upload write failed or outside uploads dir: ' . $fullPath);
+                        }
+                    }
+                }
+            }
+        }
+
+
+
         if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
             // simple size limit
             if (!empty($_FILES['image']['size']) && $_FILES['image']['size'] > BILLION_MAX_IMAGE_BYTES) {
@@ -483,7 +554,11 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php if ($new_messages_count > 0) {
             echo (int)$new_messages_count;
         } ?>
-        <a href="notifications.php">Notifications</a> | <a href="messages.php">Messages</a> | <button id="theme-toggle">Toggle Dark Mode</button>
+        <a href="notifications.php">Notifications</a> | <a href="messages.php">Messages</a> |
+        <button id="theme-toggle">Toggle Dark Mode</button>
+        <span id="theme-status" style="margin-left:8px; font-size:0.9em; opacity:0.8"></span>
+
+
         <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a> | <?php } ?>
         <a href="<?php echo h('index.php?action=logout&' . $csrf_query); ?>">Logout</a>
     </div>
@@ -493,19 +568,30 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <form action="index.php" method="POST" enctype="multipart/form-data" id="postForm">
         <input type="hidden" name="csrf_token" value="<?php echo h(get_csrf_token()); ?>">
         <!-- server uses session user_id; don't trust client-supplied ids -->
-        <textarea id="content" name="content" required placeholder="What's on your mind, <?= htmlspecialchars($_SESSION['username'], ENT_QUOTES, 'UTF-8'); ?>?"></textarea>
-        <button type="button" id="startRecBtn">Record Voice</button>
-        <button type="submit">Submit</button>
+        <div style="position:relative;">
+            <textarea id="content" name="content" required placeholder="What's on your mind, <?= htmlspecialchars($_SESSION['username'], ENT_QUOTES, 'UTF-8'); ?>?"></textarea>
+            <div id="mentionBox" style="display:none; position:absolute; left:0; right:0; top:100%; background:#ffffff; border:1px solid #b0c4de; border-radius:8px; margin-top:6px; max-height:180px; overflow:auto; z-index:50;"></div>
+        </div>
+
+        <div class="composer-actions">
+            <button type="button" id="startRecBtn">Record Voice</button>
+            <button type="button" id="attachGifBtn">Attach GIF</button>
+            <button type="submit" id="submitBtn">Submit</button>
+        </div>
+        <div id="gifStatus" style="font-size:0.85em; opacity:0.8; margin-top:6px;"></div>
 
         <!-- Native file inputs hidden; server expects them on submit -->
         <input type="file" name="image" id="image" accept="image/jpeg" style="display:none">
         <input type="file" name="audio" id="audio" accept="audio/ogg, audio/mpeg, audio/wav, audio/x-wav, audio/webm" style="display:none">
-
-
+        <input type="file" name="gif" id="gif" accept="image/gif" style="display:none">
     </form>
 
-    <h2>Recent Posts <a href="#" title="Refresh page" onclick="location.reload();"><img src="reload.svg" height="20" alt="reload"></a></h2>
-    <?php if (!empty($posts)): ?>
+
+
+
+</h2>
+
+<?php if (!empty($posts)): ?>
         <ul>
             <?php foreach ($posts as $post): ?>
                 <li>
@@ -570,7 +656,8 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         echo nl2br($rendered);
                         ?>
                         <?php
-                        // Show uploads (image/audio)
+                        // Show uploads (image/audio/gif)
+
                         if (!empty($post['file_names'])) {
                             $files = explode(',', $post['file_names']);
                             foreach ($files as $file) {
@@ -579,8 +666,10 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 // Only allow rendering files from the uploads directory; use basename to avoid traversal
                                 $base = basename($file);
                                 $safeUrl = htmlspecialchars($UPLOAD_DB_PREFIX . $base, ENT_QUOTES, 'UTF-8');
-                                if (preg_match('/\.jpg$/i', $base)) {
+                    if (preg_match('/\.jpg$/i', $base)) {
                                     echo "<p><img src='" . $safeUrl . "' alt='post image'></p>";
+                                } elseif (preg_match('/\.gif$/i', $base)) {
+                                    echo "<p><img src='" . $safeUrl . "' alt='post gif' style='max-width:100%; height:auto;'></p>";
                                 } elseif (preg_match('/\.(ogg|mp3|wav|webm)$/i', $base)) {
                                     echo "<p><audio controls src='" . $safeUrl . "'></audio></p>";
                                 }
@@ -617,22 +706,272 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <p>No posts yet.</p>
     <?php endif; ?>
 
+<div style="margin-top:30px; font-size:0.9em; opacity:0.75">
+    <strong>You have reached the end.</strong>
+</div>
+
 </body>
+
 <script>
+
+
 const toggleButton = document.getElementById('theme-toggle');
+
+const themeStatus = document.getElementById('theme-status');
 
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme) {
   document.body.classList.toggle('dark-mode', savedTheme === 'dark');
+} else {
+  // default to OS preference
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.body.classList.toggle('dark-mode', prefersDark);
 }
+
+function setThemeStatus() {
+  if (!themeStatus) return;
+  themeStatus.textContent = document.body.classList.contains('dark-mode') ? 'Dark' : 'Light';
+}
+setThemeStatus();
+
 
 toggleButton.addEventListener('click', () => {
   const isDarkMode = document.body.classList.toggle('dark-mode');
   localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+  setThemeStatus();
 });
 
+// Offline-friendly composer draft (index.php)
 (function(){
+  const form = document.getElementById('postForm');
+  const content = document.getElementById('content');
+  if (!form || !content) return;
+
+  const storageKey = 'billion:draft:index:content';
+  const restore = () => {
+    const saved = localStorage.getItem(storageKey);
+    if (saved && !content.value) content.value = saved;
+  };
+  restore();
+
+  // Save as user types
+  content.addEventListener('input', () => {
+    localStorage.setItem(storageKey, content.value);
+  });
+
+  // Clear draft after successful submit
+  form.addEventListener('submit', () => {
+    localStorage.removeItem(storageKey);
+  });
+
+// Optional: inform user when offline
+  window.addEventListener('offline', () => {
+    alert('You appear to be offline. Draft will be saved locally—submit will fail until connection is back.');
+  });
+})();
+
+
+// Mention autocomplete (only: username suggestions on "@")
+(function(){
+  const content = document.getElementById('content');
+  const box = document.getElementById('mentionBox');
+  if (!content || !box) return;
+
+  let lastQuery = '';
+  let activeIndex = -1;
+  let suggestions = [];
+
+  function escapeHtml(str) {
+    return (str ?? '').toString()
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '<')
+      .replaceAll('>', '>')
+      .replaceAll('"', '"')
+      .replaceAll("'", '&#039;');
+  }
+
+  function closeBox() {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    activeIndex = -1;
+    suggestions = [];
+  }
+
+  function openBoxWith(items) {
+    suggestions = items;
+    activeIndex = items.length > 0 ? 0 : -1;
+    box.innerHTML = '';
+    if (!items.length) {
+      box.style.display = 'none';
+      return;
+    }
+
+    items.forEach((u, i) => {
+      const div = document.createElement('div');
+      div.setAttribute('role', 'option');
+      div.dataset.index = String(i);
+      div.style.padding = '8px 10px';
+      div.style.cursor = 'pointer';
+      div.style.borderBottom = i === items.length - 1 ? 'none' : '1px solid rgba(176,196,222,0.35)';
+      div.textContent = '@' + u;
+      div.style.background = i === activeIndex ? 'rgba(30,144,255,0.12)' : 'transparent';
+      div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        chooseIndex(i);
+      });
+      box.appendChild(div);
+    });
+
+    box.style.display = 'block';
+  }
+
+  function getMentionQueryAndRange() {
+    const value = content.value;
+    const caret = content.selectionStart;
+    if (typeof caret !== 'number') return null;
+
+    // Find the last @ before the caret that starts a valid mention token
+    const before = value.slice(0, caret);
+    const match = before.match(/(^|\s)@([A-Za-z0-9_]{0,32})$/);
+    if (!match) return null;
+
+    const full = match[0];
+    const q = match[2];
+
+    // Range: replace just the "@<query>" part
+    const start = caret - (q.length + 1);
+    const end = caret;
+    return { q, start, end };
+  }
+
+  function chooseIndex(i) {
+    if (i < 0 || i >= suggestions.length) return;
+    const user = suggestions[i];
+    const info = getMentionQueryAndRange();
+    if (!info) return;
+
+    const before = content.value.slice(0, info.start);
+    const after = content.value.slice(info.end);
+    // add a trailing space so next typing doesn't stick to mention token
+    const replacement = '@' + user + ' ';
+    content.value = before + replacement + after;
+
+    const newCaret = (before + replacement).length;
+    content.focus();
+    content.setSelectionRange(newCaret, newCaret);
+    closeBox();
+  }
+
+  let debounceTimer = null;
+  function requestSuggestions(q) {
+    if (!q && q !== '') return;
+    if (q === lastQuery) return;
+    lastQuery = q;
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'index.php?action=mention_suggest&query=' + encodeURIComponent(q), true);
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState !== 4) return;
+        if (xhr.status !== 200) {
+          closeBox();
+          return;
+        }
+        try {
+          const data = JSON.parse(xhr.responseText);
+          openBoxWith(Array.isArray(data.suggestions) ? data.suggestions.slice(0, 10) : []);
+        } catch (e) {
+          closeBox();
+        }
+      };
+      xhr.send();
+    }, 120);
+  }
+
+  content.addEventListener('input', () => {
+    const info = getMentionQueryAndRange();
+    if (!info) {
+      closeBox();
+      return;
+    }
+
+    // Only trigger on @ token usage
+    requestSuggestions(info.q);
+  });
+
+  content.addEventListener('keydown', (e) => {
+    if (box.style.display !== 'block') return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeBox();
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = Math.min(suggestions.length - 1, activeIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = Math.max(0, activeIndex - 1);
+    } else if (e.key === 'Enter') {
+      if (activeIndex >= 0) {
+        e.preventDefault();
+        chooseIndex(activeIndex);
+      }
+      return;
+    } else {
+      return;
+    }
+
+    // update highlight
+    const children = box.children;
+    for (let i = 0; i < children.length; i++) {
+      children[i].style.background = i === activeIndex ? 'rgba(30,144,255,0.12)' : 'transparent';
+    }
+  });
+
+  // Click outside to close
+  document.addEventListener('click', (e) => {
+    if (!box.contains(e.target) && e.target !== content) closeBox();
+  });
+})();
+
+
+
+(function(){
+  // GIF attachment wiring (Attach GIF button -> hidden file input)
+  const attachBtn = document.getElementById('attachGifBtn');
+  const gifInput = document.getElementById('gif');
+  const gifStatus = document.getElementById('gifStatus');
+
+  function setGifStatus(text) {
+    if (!gifStatus) return;
+    gifStatus.textContent = text;
+  }
+
+  if (attachBtn && gifInput) {
+    attachBtn.addEventListener('click', () => {
+      gifInput.click();
+    });
+
+    gifInput.addEventListener('change', () => {
+      const file = gifInput.files && gifInput.files[0] ? gifInput.files[0] : null;
+      if (file) {
+        setGifStatus('Selected GIF: ' + file.name);
+        attachBtn.textContent = 'Change GIF';
+      } else {
+        setGifStatus('');
+        attachBtn.textContent = 'Attach GIF';
+      }
+    });
+  }
+
   let recorder = null;
+
+
+
   let chunks = [];
   const startBtn = document.getElementById('startRecBtn');
   if (!startBtn) return;
