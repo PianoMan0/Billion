@@ -115,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         header('Location: login.php');
         exit;
     }
+    
 
     // Increase the like count for the specified post
     if (!empty($action) && $action === 'like' && !empty($post_id)) {
@@ -501,6 +502,7 @@ $stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = :user_i
 $stmt->bindValue(':user_id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
 $stmt->execute();
 $new_messages_count = (int)$stmt->fetchColumn();
+
 
 // Get a list of recent posts, with like counts and uploads
 $stmt = $db->prepare("
